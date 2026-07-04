@@ -1,6 +1,8 @@
 import warnings
 from .utils import PhysicsFunctions
+from .windfield import WindField
 import numpy as np
+import numpy.typing as npt
 
 
 class Rocket(PhysicsFunctions):
@@ -33,12 +35,19 @@ class Rocket(PhysicsFunctions):
     array: Simulated state of the rocket over time.
     """
 
-    def __init__(self, initial_conditions: list, params: dict, logger: object) -> None:
+    def __init__(
+        self,
+        initial_conditions: list[npt.NDArray[np.float64], npt.NDArray[np.float64]],
+        params: dict,
+        logger: object,
+    ) -> None:
         """Initialize the Rocket simulation with initial conditions and
         parameters."""
         super().__init__()
         self.params = params
-        self.state_cartesian = np.hstack(initial_conditions)  # set the initial state
+        self.state_cartesian = np.hstack(
+            initial_conditions, dtype=np.float64
+        )  # set the initial state
         self.logger = logger
 
         if self.params["mass"] <= 0:
@@ -107,7 +116,7 @@ class Rocket(PhysicsFunctions):
             self.grav_acc = self._simple_gravity
             self.get_air_density = self._simple_airdensity
 
-    def get_drag_force(self) -> np.ndarray:
+    def get_drag_force(self) -> npt.NDArray[np.float64]:
         """Calculate the drag force based on velocity and drag
         coefficient."""
         # get altitude from the current position of the rocket
@@ -126,7 +135,9 @@ class Rocket(PhysicsFunctions):
 
         return self._compute_drag_force(air_density, drag_coeff, cross_sectional_area)
 
-    def equations_of_motion(self) -> list[np.ndarray]:
+    def equations_of_motion(
+        self,
+    ) -> list[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         """
         EOMs for the rocket, calculating the acceleration based on the
         current state and forces acting on the rocket.
@@ -144,7 +155,12 @@ class Rocket(PhysicsFunctions):
 
         return [velocity, accelerationv]
 
-    def update_state(self, t, wind_field, wind_field_conditions) -> None:
+    def update_state(
+        self,
+        t: npt.NDArray[np.float64],
+        wind_field: WindField,
+        wind_field_conditions: list[npt.NDArray[np.float64], npt.NDArray[np.float64]],
+    ) -> None:
         """
         Update the state of the rocket based on the equations of motion
         and wind conditions.
@@ -171,6 +187,7 @@ class Rocket(PhysicsFunctions):
         new_position = (
             position + new_velocity * (t[1] - t[0]) + wind_velv * (t[1] - t[0])
         )
+
         self.set_position_cartesian(new_position)
         self.set_velocity_cartesian(new_velocity)
         self.estimate_state(t[1])

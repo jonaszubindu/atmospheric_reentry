@@ -50,7 +50,7 @@ params = {
     # use 'realistic' to use all realistic assumptions and parameters,
     # or use simplified assumptions for testing and debugging, e.g. no
     # drag, constant gravity, etc.
-    "mode": "simplified",
+    "mode": "realistic",
 }
 
 # Initialize parameters and initial conditions

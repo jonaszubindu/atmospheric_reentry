@@ -4,6 +4,7 @@ import pandas as pd
 from .utils import altitude_to_geopotential
 
 
+# potentially upgrade type hints to numpy.typing.NDArray[np.float64] for better clarity and type checking
 class Logging:
     def __init__(self, n_steps: int) -> None:
         self.i = 0

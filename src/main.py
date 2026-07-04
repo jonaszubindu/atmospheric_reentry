@@ -26,7 +26,7 @@ def verbose_message(
             f"Position (lat, lon, alt): "
             f"({lat:.2f}°, {lon:.2f}°, {alt:.2f} m), "
             f"Velocity (v_lat, v_lon, v_alt): "
-            f"({v_lat:.2f}, {v_lon:.2f}, {v_alt:.2f}) m/s"
+            f"({v_lat:.2f}, {v_lon:.2f}, {v_alt:.2f}) m/s, "
             f"Wind Velocity (v_wind_lat, v_wind_lon, v_wind_alt): "
             f"({wind_vel_geodetic[0]:.2f}, {wind_vel_geodetic[1]:.2f}, {wind_vel_geodetic[2]:.2f}) m/s"
         )
@@ -64,7 +64,7 @@ def main(
         if verbose and ii % 100 == 0:  # Print every 100 steps to reduce output
             verbose_message(rocket_simulation, wind_field, time0)
 
-        if altitude < 0:
+        if altitude <= 0.0:
             # The rocket has hit the ground, stop the simulation
             break
 
@@ -115,13 +115,13 @@ if __name__ == "__main__":
         # mass of the rocket in kg, assumed to be a pointmass
         "mass": 700,
         # drag coefficient rocket (dimensionless)
-        "drag_coefficient": 1.4,
+        "drag_coefficient": 1.4,  # default 1.4,
         # drag coefficient with parachute deployed (dimensionless)
-        "drag_coefficient_parachute": 2.0,
+        "drag_coefficient_parachute": 2.0,  # default 2.0,
         # cross-sectional area in m^2
-        "cross_sectional_area": 1.14,
+        "cross_sectional_area": 1.14,  # default 1.14,
         # cross-sectional area of parachute in m^2
-        "cross_sectional_area_parachute": 18,
+        "cross_sectional_area_parachute": 18,  # default 18,
         # which wind data to use; use "default" for default behaviour,
         # use "ERA5" for realistic wind data.
         "wind": wind_data,
@@ -147,16 +147,16 @@ if __name__ == "__main__":
     # cartesian degrees, meaning 0 degrees is eastward, 90 degrees is
     # northward, 180 degrees is westward and 270 degrees is southward,
     # matching the coordinate system of the simulation.
-    wind_field_conditions = [270, 15]
+    wind_field_conditions = [270.0, 15.0]
 
     if params["wind"] == "default" and params["mode"] == "simplified":
         # This for now also automatically assumes a flat earth.
         # Initial position (x, y, z) in meters, rocket dropped at 60 km
         # height.
-        position_vec = np.array([0, 0, 60000])
+        position_vec = np.array([0, 0, 60000], dtype=np.float64)
         # Initial velocity (vx, vy, vz) in m/s, rocket dropped at 70 m/s
         # horizontal in x and y and -280 m/s vertical velocity.
-        velocity_vec = np.array([70, 70, -280])
+        velocity_vec = np.array([70, 70, -280], dtype=np.float64)
         wind_field_conditions = wind_field_conditions
 
     if params["mode"] == "realistic" or params["wind"] == "ERA5":
@@ -170,8 +170,8 @@ if __name__ == "__main__":
         # as COORDINATE_SYSTEM_POS above applies here.
         # Initial velocity (vx, vy, vz) in m/s, rocket dropped at 70 m/s
         # horizontal in x and y and -280 m/s vertical velocity.
-        position_init = np.array([lat, lon, alt])
-        velocity_init = np.array([70, 70, -280])
+        position_init = np.array([lat, lon, alt], dtype=np.float64)
+        velocity_init = np.array([70, 70, -280], dtype=np.float64)
 
         velocity_vec = StateEstimation.convert_velocity_geodetic_to_cartesian(
             velocity_init, lat, lon
@@ -222,7 +222,10 @@ if __name__ == "__main__":
     scale_fac = 1 if params["mode"] == "realistic" or params["wind"] == "ERA5" else 1000
     # set a limit for the horizontal trajectory plot to investigate
     # initial trajectory.
-    lim = None
+    if params["mode"] == "realistic" or params["wind"] == "ERA5":
+        lim = None
+    else:
+        lim = 20
 
     plot_results(
         logger.get_full_state(),

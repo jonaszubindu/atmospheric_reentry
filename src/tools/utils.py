@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 from typing import Optional
+import numpy.typing as npt
 
 from .state_estimation import StateEstimation
 
@@ -28,32 +29,35 @@ class PhysicsFunctions(StateEstimation):
         altitude = self.get_position_geodetic()[2]
         return const.SEA_LEVEL_AIR_DENSITY * np.exp(-altitude / const.scale_height)
 
-    def _simple_gravity(self) -> np.ndarray:
+    def _simple_gravity(self) -> npt.NDArray[np.float64]:
         """Simple model for gravitational acceleration, assuming constant
         gravity at sea level."""
         # Gravitational acceleration in m/s^2, pointing downwards in z.
-        return np.array([0, 0, -const.G0])
+        return np.array([0, 0, -const.G0], dtype=np.float64)
 
-    def _compute_gravitational_acceleration(self) -> np.ndarray:
+    def _compute_gravitational_acceleration(self) -> npt.NDArray[np.float64]:
         """Compute the correct gravitational acceleration with respect to the
         Earth's center, pointing opposite to the position vector."""
         position = self.get_position_cartesian()
         r = np.linalg.norm(position)  # Distance from the center of the Earth
         assert r > 0, "Position vector must be positive to compute gravity."
-        return -const.G * const.M / r**2 * position / np.linalg.norm(position)
+        return np.asarray(
+            -const.G * const.M / r**2 * position / np.linalg.norm(position),
+            dtype=np.float64,
+        )
 
-    def _calc_alt_simpl(self) -> float:
+    def _calc_alt_simpl(self) -> np.float64:
         """Calculate altitude above the surface of the Earth based on the
         position vector, assuming a flat Earth for simplicity."""
         # Assuming z-component of position is altitude for the simplified model.
         return self.get_position_cartesian()[2]
 
-    def _calc_alt_realistic(self) -> float:
+    def _calc_alt_realistic(self) -> np.float64:
         """Calculate altitude above the surface of the Earth based on the
         position vector."""
         return self.get_position_geodetic()[2]
 
-    def _spherical_earth_forces(self) -> np.ndarray:
+    def _spherical_earth_forces(self) -> npt.NDArray[np.float64]:
         """Compute the forces arising due to Earth's rotation."""
         position = self.get_position_cartesian()
         velocity = self.get_velocity_cartesian()
@@ -69,7 +73,7 @@ class PhysicsFunctions(StateEstimation):
 
     def _compute_drag_force(
         self, air_density: float, drag_coeff: float, cross_sectional_area: float
-    ) -> np.ndarray:
+    ) -> npt.NDArray[np.float64]:
         """Calculate the drag force with a vector opposite to velocity."""
         velocity = self.get_velocity_cartesian()
         speed = np.linalg.norm(velocity)
@@ -205,7 +209,7 @@ def plot_results(
             positions[-1, 0] / scale_fac,
             positions[-1, 1] / scale_fac,
             color="b",
-            s=lw,
+            s=lw * 2,
         )
 
         ax3.plot(
@@ -219,7 +223,7 @@ def plot_results(
             velocity[:, 0],
             velocity[:, 1],
             color="r",
-            s=0.01 * lw,
+            s=0.5 * lw,
         )
 
     elif params["wind"] == "Monte Carlo":
@@ -278,7 +282,7 @@ def plot_results(
                 positions[-1, 0] / scale_fac,
                 positions[-1, 1] / scale_fac,
                 color="b",
-                s=lw,
+                s=2 * lw,
             )
 
             ax3.plot(
@@ -292,7 +296,7 @@ def plot_results(
                 velocity[:, 0],
                 velocity[:, 1],
                 color="r",
-                s=0.01 * lw,
+                s=0.5 * lw,
             )
 
     ax1.set_title("Rocket altitude over Time")

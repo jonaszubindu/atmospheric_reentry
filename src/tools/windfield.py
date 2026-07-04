@@ -6,6 +6,7 @@ import xarray as xr
 import pandas as pd
 import cfgrib
 from scipy.interpolate import interp1d
+import numpy.typing as npt
 
 from .utils import (
     altitude_to_geopotential,
@@ -31,9 +32,9 @@ class WindField:
     def update_wind(
         self,
         t: float,
-        position_geodetic: np.ndarray,
+        position_geodetic: npt.NDArray[np.float64],
         wind_field_conditions: list = None,
-    ) -> np.ndarray:
+    ) -> npt.NDArray[np.float64]:
         """Update the wind velocity vector based on the specified wind model.
 
         This method is a placeholder and will be replaced by either
@@ -42,11 +43,11 @@ class WindField:
         Parameters:
         t (float): The current time in seconds since the start of the
             simulation.
-        position_geodetic (np.ndarray): The current position of the rocket in
+        position_geodetic (npt.NDArray[np.float64]): The current position of the rocket in
             geodetic coordinates (latitude, longitude, altitude).
         wind_field_conditions (list, optional): Default wind conditions
             [wind_direction, wind_speed] if using the default wind model.
-        Returns: np.ndarray: The wind velocity vector in the simulation coordinate system.
+        Returns: npt.NDArray[np.float64]: The wind velocity vector in the simulation coordinate system.
             in case of default wind model, the wind velocity vector is in cartesian coordinates.
             in case of ERA5 wind model, the wind velocity vector is in ENU coordinates and needs to be transformed to cartesian coordinates using the rocket's current position.
         """
@@ -65,7 +66,7 @@ class WindField:
         else:
             # eastward wind
             u = xr.open_dataset(
-                "./atmospheric_reentry/windmodel_data/era5_ml.grib",
+                "./tools/windmodel_data/era5_ml.grib",
                 engine="cfgrib",
                 backend_kwargs={
                     "filter_by_keys": {"paramId": 131, "typeOfLevel": "hybrid"}
@@ -74,7 +75,7 @@ class WindField:
 
             # northward wind
             v = xr.open_dataset(
-                "./atmospheric_reentry/windmodel_data/era5_ml.grib",
+                "./tools/windmodel_data/era5_ml.grib",
                 engine="cfgrib",
                 backend_kwargs={
                     "filter_by_keys": {"paramId": 132, "typeOfLevel": "hybrid"}
@@ -82,7 +83,7 @@ class WindField:
             )
             # geopotential for altitude interpolation
             z = cfgrib.open_dataset(
-                "./atmospheric_reentry/windmodel_data/z_out.grib",
+                "./tools/windmodel_data/z_out.grib",
                 backend_kwargs={"filter_by_keys": {"typeOfLevel": "hybrid"}},
             )
             print(
@@ -196,8 +197,11 @@ class WindField:
         return self._get_wind_at_altitude(t=t, lat=lat, lon=lon, alt=alt)
 
     def _update_wind_default(
-        self, t: float, position: np.ndarray, wind_field_conditions: list = [270, 15]
-    ) -> np.ndarray:
+        self,
+        t: float,
+        position: npt.NDArray[np.float64],
+        wind_field_conditions: list[np.float64, np.float64] = [270.0, 15.0],
+    ) -> npt.NDArray[np.float64]:
         """Update the wind velocity vector based on default wind conditions,
         ignoring position and time.
 
