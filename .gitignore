@@ -1,0 +1,10 @@
+# Local virtual environment (not for pushing)
+.venv/
+
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+.ruff_cache/
+
+# cfgrib index sidecar files generated next to .grib data
+*.grib.*.idx
