@@ -52,25 +52,11 @@ class StateEstimation:
             self._cartesian_to_geodetic_velocity()
         )  # lazily update geodetic velocity from cartesian velocity
 
-    # def _set_position_geodetic(self, new_position: npt.NDArray[np.float64]) -> None:
-    #     """Set the current position of the rocket in geodetic coordinates."""
-    #     self.state_geodetic[:3] = np.asarray(new_position, dtype=np.float64)
-
-    # def _set_velocity_geodetic(self, new_velocity: npt.NDArray[np.float64]) -> None:
-    #     """Set the current velocity of the rocket in geodetic coordinates."""
-    #     self.state_geodetic[3:] = np.asarray(new_velocity, dtype=np.float64)
-
     def _cartesian_to_geodetic(self) -> None:
         """Convert cartesian coordinates (x, y, z) to geodetic coordinates
         (latitude, longitude, altitude)."""
         position = self.get_position_cartesian()
         return np.asarray(pm.ecef2geodetic(position[0], position[1], position[2]))
-
-    # def _geodetic_to_cartesian(self) -> None:
-    #     """Convert geodetic coordinates (latitude, longitude, altitude) to
-    #     cartesian coordinates (x, y, z)."""
-    #     position = self.get_position_geodetic()
-    #     self.set_position_cartesian(self.convert_geodetic_to_cartesian(position))
 
     def _cartesian_to_geodetic_velocity(self) -> None:
         """Convert cartesian velocity (vx, vy, vz) to geodetic velocity
@@ -79,18 +65,6 @@ class StateEstimation:
         velocity = self.get_velocity_cartesian()
         lat, lon, _ = position
         return np.asarray(pm.ecef2enuv(velocity[0], velocity[1], velocity[2], lat, lon))
-
-    # def _geodetic_to_cartesian_velocity(self) -> None:
-    #     """Convert geodetic velocity (v_lat, v_lon, v_alt) to cartesian
-    #     velocity (vx, vy, vz). Assumes velocity is in ENU (East, North, Up)
-    #     coordinates for geodetic velocity and we want to convert it to ECEF
-    #     coordinates for cartesian velocity."""
-    #     position = self.get_position_geodetic()
-    #     velocity = self.get_velocity_geodetic()
-    #     lat, lon, _ = position
-    #     self.set_velocity_cartesian(
-    #         self.convert_velocity_geodetic_to_cartesian(velocity, lat, lon)
-    #     )
 
     @staticmethod
     def convert_velocity_geodetic_to_cartesian(
@@ -119,9 +93,3 @@ class StateEstimation:
         coordinates (x, y, z)."""
         lat, lon, alt = position_geodetic
         return np.asarray(pm.geodetic2ecef(lat, lon, alt))
-
-
-# def _update_full_state(self):
-#     """Update the state from cartesian to geodetic coordinates."""
-#     self._cartesian_to_geodetic()
-#     self._cartesian_to_geodetic_velocity()
