@@ -1,51 +1,222 @@
-Copyright 2026 Jonas Zbinden
-This software is licensed under the terms of the MIT GNU AGPLv3 License which can be obtained at https://opensource.org/licenses/MIT or
-from the LICENSE file in the root directory of this project.
+# Atmospheric Reentry Model
 
-This software is provided "as is", without warranty of any kind, express or implied, including but not limited to the warranties of merchantability,
-fitness for a particular purpose and non-infringement. In no event shall the authors or copyright holders be liable for any claim,
-damages or other liability, whether in an action of contract, tort or otherwise, arising from, out of or in connection with the software or the
-use or other dealings in the software.
+A Python toolkit for simulating the atmospheric reentry of a rocket stage,
+with a configurable degree of physical realism — from a simple flat-Earth
+model to a spherical-Earth model with ECEF dynamics, altitude-dependent
+gravity and air density, Earth-rotation pseudo-forces, and interpolated
+real wind fields from ERA5.
 
-This code contains the core_functions to run the rocket reentry model, including the equations of motion, drag force calculation, gravitational acceleration,
-and wind field interpolation. The simulate_rocket class simulates the rocket's flight using the equations of motion, while the state_estimation class can be
-expanded to include sensor noise and filtering. The logging class logs the state of the rocket at each time step for analysis, debugging and visualization.
+Copyright 2026 Jonas Zbinden. Licensed under the MIT License (see
+`src/atmospheric_reentry/LICENSE.txt`).
 
-The toolkit is to run rocket reentry simulations with varying degree of realism.
+This software is provided "as is", without warranty of any kind, express or
+implied. In no event shall the authors or copyright holders be liable for
+any claim, damages or other liability arising from the use of the software.
 
-To install the toolkid please create a virtual environment with
+> **Status:** work in progress. The physics runs end to end in both modes,
+> but the model has not been formally validated against reference
+> trajectories.
 
-python -m venv myenv
+---
 
-activate it with
+## Installation
 
-source myenv/bin/activate
+Requires **Python ≥ 3.10**.
 
-cd into the code directory with the .toml file and install the repo with
+```bash
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -e .                   # installs the package and its dependencies
+```
 
-pip install .
+Dependencies (numpy, scipy, matplotlib, pandas, xarray, cfgrib, pymap3d,
+joblib) are resolved automatically from `pyproject.toml`. Verify the
+install with:
 
-Check your installation by running:
+```bash
+python -c "import atmospheric_reentry; print('install OK')"
+```
 
-python -c "import atmospheric_reentry; print('dev install OK')"
+---
 
-If any of these steps don't work, please email: jonas_zbinden@bluewin.ch
+## Project structure
 
+```
+.
+├── pyproject.toml
+└── src/
+    ├── main.py               # single-run entry point (interactive or programmatic)
+    ├── monte_carlo_run.py    # parallel Monte Carlo over wind conditions
+    └── atmospheric_reentry/  # the importable package
+        ├── simulate_rocket.py    # Rocket: equations of motion, drag, time stepping
+        ├── state_estimation.py   # StateEstimation: state store + ECEF <-> geodetic
+        ├── utils.py              # PhysicsFunctions (gravity/drag/air density) + plotting
+        ├── windfield.py          # WindField: default analytic wind and ERA5 interpolation
+        ├── logging.py            # Logging: per-step buffers -> pandas DataFrame
+        ├── constants.py          # physical constants
+        ├── get_winddata.py       # download ERA5 model-level data (CDS API)
+        ├── compute_geopotential_on_ml.py  # geopotential on model levels (ECMWF tool)
+        ├── time.py               # placeholder for a future simulation clock (unused)
+        └── windmodel_data/       # ERA5 GRIB data used by the ERA5 wind model
+```
 
-The main functions are stored in "main.py". To change the degree of realism, there are two specific keywords that can be set in a
-param dictionary within main.py.
+> **Note:** `main.py` and `monte_carlo_run.py` open the wind data through
+> paths relative to the package (`./atmospheric_reentry/windmodel_data/...`),
+> so run them **from inside `src/`**.
 
-Set "mode" to "realistic" to run a simulation on a spherical Earth, with a geodetic coordinate system and ECEF system
-to propagate the equations of motion. The code automatically switches between Cartesian and geodetic coordinates for different tasks.
-Realistic additionally includes realistic gravity, air resistance changing with altitude. Additionally, there is a function that would
-include the Coriolis and centrifugal forces, but this function is not implemented into the EOM's yet.
+---
 
-A wind model can be predownloaded and interpolated at the required positions. To activate it, set the keyword "wind" to "ERA5".
-The wind model can only be used when running main.py.
+## Configuration
 
-All results are plotted with a plotting routine that automatically adjusts for the realistic case to show coordinates, and in the simple case km and m/s.
+Behaviour is driven by a `params` dictionary:
 
-The routine Monte_carlo_run.py runs in parallel simulations with varying degrees of initial wind. The final graphic depicts the positions where the rocket would impact.
-In the case of the realistic simulation runs, an initial position in coordinates has to be chosen. For now, a default value is set for lon and lat.
+| Key                              | Values                              | Meaning |
+|----------------------------------|-------------------------------------|---------|
+| `mode`                           | `"simplified"` \| `"realistic"`     | flat-Earth toy model vs spherical/ECEF model |
+| `wind`                           | `"default"` \| `"ERA5"` \| `"Monte Carlo"` | analytic constant wind, interpolated ERA5 wind, or per-run sampled wind |
+| `pseudo_forces`                  | `True` \| `False`                   | include Coriolis + centrifugal terms (realistic mode only) |
+| `mass`                           | float (kg)                          | rocket mass (point mass) |
+| `drag_coefficient`               | float                               | drag coefficient above 10 km |
+| `drag_coefficient_parachute`     | float                               | drag coefficient below 10 km (parachute deployed) |
+| `cross_sectional_area`           | float (m²)                          | reference area above 10 km |
+| `cross_sectional_area_parachute` | float (m²)                          | reference area below 10 km |
+| `verbose`                        | `True` \| `False`                   | print state every 100 steps |
 
-The tool is still a work in progress and has not been fully tested yet.
+**Modes in detail**
+
+- **`simplified`** — flat Earth, constant gravity (−9.81 m/s² in z),
+  constant air density. Position/velocity are plain Cartesian x/y/z.
+  Geodetic output columns are `NaN` in this mode.
+- **`realistic`** — spherical Earth in ECEF coordinates, gravity that
+  falls off with distance from Earth's centre, exponential air density
+  with altitude, and (if `pseudo_forces=True`) Coriolis and centrifugal
+  acceleration. The model converts between Cartesian (ECEF) and geodetic
+  (lat/lon/alt) coordinates as needed.
+
+**Wind sources**
+
+- **`default`** — constant horizontal wind from a direction and speed you
+  pass in `wind_field_conditions = [direction_deg, speed_mps]`. Direction
+  is in Cartesian degrees (0° = east, 90° = north, 180° = west, 270° = south).
+- **`ERA5`** — real wind interpolated in space, time and altitude from
+  pre-downloaded ERA5 GRIB data (see *Preparing ERA5 wind data*). Pass
+  `wind_field_conditions = None`.
+- **`Monte Carlo`** — used by `monte_carlo_run.py`; each parallel run draws
+  its own `[direction_deg, speed_mps]`.
+
+---
+
+## Usage
+
+### 1. Interactive single run
+
+From `src/`:
+
+```bash
+cd src
+python main.py
+```
+
+`main.py` prompts (via a small text menu) for the simulation mode and wind
+source, runs one trajectory, prints a summary, and shows a three-panel plot
+(altitude vs time, ground track, and airspeed).
+
+### 2. Programmatic single run
+
+Build the pieces yourself and call `main()`, which returns a pandas
+`DataFrame` of the full logged trajectory:
+
+```python
+import numpy as np
+from atmospheric_reentry.simulate_rocket import Rocket
+from atmospheric_reentry.logging import Logging
+from atmospheric_reentry.windfield import WindField
+from atmospheric_reentry.state_estimation import StateEstimation
+from main import main   # run this from the src/ directory
+
+params = {
+    "mass": 700,
+    "drag_coefficient": 1.4,
+    "drag_coefficient_parachute": 2.0,
+    "cross_sectional_area": 1.14,
+    "cross_sectional_area_parachute": 18,
+    "wind": "ERA5",
+    "mode": "realistic",
+    "pseudo_forces": True,
+    "verbose": False,
+}
+
+t = np.linspace(0, 3000, 10000)          # time grid (s)
+
+# Realistic mode expects Cartesian (ECEF) initial conditions. Convert from
+# a geodetic launch/entry point:
+lat, lon, alt = 38.5, 285.0, 60000.0
+position = StateEstimation.convert_geodetic_to_cartesian(np.array([lat, lon, alt]))
+velocity = StateEstimation.convert_velocity_geodetic_to_cartesian(
+    np.array([70.0, 70.0, -280.0]), lat, lon)
+
+logger = Logging(n_steps=len(t))
+rocket = Rocket(initial_conditions=[position, velocity], params=params, logger=logger)
+wind = WindField(start_time="2026-06-05T13:00:00", params=params, logger=logger)
+
+df = main(t, rocket, wind, wind_field_conditions=None, verbose=False)
+print(df[["time", "altitude", "position geodetic lat", "position geodetic lon"]].tail())
+```
+
+For a **simplified** run, skip the coordinate conversion and pass plain
+Cartesian initial conditions, e.g. `position = np.array([0, 0, 60000])`,
+`velocity = np.array([70, 70, -280])`, with `wind_field_conditions=[270, 15]`.
+
+The simulation stops early when the altitude drops below zero (impact).
+
+### 3. Monte Carlo ensemble
+
+From `src/`:
+
+```bash
+cd src
+python monte_carlo_run.py
+```
+
+Runs many trajectories in parallel (via `joblib`) with wind direction and
+speed sampled per run, and plots all trajectories together to show the
+spread of impact points. Sample count and parameters are set at the top of
+`monte_carlo_run.py`.
+
+---
+
+## Output
+
+`logger.get_full_state()` returns a `DataFrame` with one row per simulated
+step, including: `time`; Cartesian position/velocity (`position cartesian
+x/y/z`, `velocity cartesian x/y/z`); geodetic position/velocity (`position
+geodetic lat/lon/alt`, `velocity geodetic lat/lon/alt`); `altitude`;
+`drag_force`; `air_density`; `grav_acc norm`; `geopotential`;
+`wind_velocity`; and per-step `warnings`. In `simplified` mode the geodetic
+columns are `NaN` (no meaningful lat/lon on a flat Earth).
+
+---
+
+## Preparing ERA5 wind data
+
+The `ERA5` wind model reads GRIB files from
+`src/atmospheric_reentry/windmodel_data/`. Sample data is included. To
+generate data for a different date or region:
+
+1. `get_winddata.py` downloads ERA5 model-level fields (temperature, u/v
+   wind, humidity, geopotential, log surface pressure) via the Copernicus
+   **CDS API** — this requires the `cdsapi` package and a (free) CDS
+   account with credentials configured.
+2. `compute_geopotential_on_ml.py` (an ECMWF utility) converts the model-
+   level fields into geopotential on model levels (`z_out.grib`), which the
+   wind model uses to map altitude to model level.
+
+The horizontal area and date are fixed by the download request in
+`get_winddata.py`; a trajectory that leaves the downloaded area or altitude
+range gets zero wind (with a logged warning) rather than an error.
+
+---
+
+## Contact
+
+Questions or problems: **jonas_zbinden@bluewin.ch**

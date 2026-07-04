@@ -6,5 +6,10 @@ __pycache__/
 *.py[cod]
 .ruff_cache/
 
+# Packaging / build artifacts
+*.egg-info/
+build/
+dist/
+
 # cfgrib index sidecar files generated next to .grib data
 *.grib.*.idx
