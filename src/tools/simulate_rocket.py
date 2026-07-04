@@ -41,9 +41,8 @@ class Rocket(PhysicsFunctions):
         self.state_cartesian = np.hstack(initial_conditions)  # set the initial state
         self.logger = logger
 
-        if self.params['mass'] <= 0:
+        if self.params["mass"] <= 0:
             raise ValueError("Rocket mass must be positive. Check your parameters.")
-        
 
         # Set the appropriate methods for altitude, gravity, and air
         # density calculations based on the simulation mode and wind data.

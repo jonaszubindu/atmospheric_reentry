@@ -25,11 +25,11 @@ import numpy as np
 from joblib import Parallel, delayed
 
 from main import main
-from atmospheric_reentry.utils import plot_results
-from atmospheric_reentry.windfield import WindField
-from atmospheric_reentry.state_estimation import StateEstimation
-from atmospheric_reentry.simulate_rocket import Rocket
-from atmospheric_reentry.logging import Logging
+from tools.utils import plot_results
+from tools.windfield import WindField
+from tools.state_estimation import StateEstimation
+from tools.simulate_rocket import Rocket
+from tools.logging import Logging
 
 nsamples = 200
 # Sample initial wind conditions
