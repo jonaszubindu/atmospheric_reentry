@@ -76,6 +76,9 @@ def main(
 
     # Adjust time array to match the length of the state array
     if verbose:
+        for warning_ in rocket_simulation.logger.warnings:
+            if warning_:
+                print(warning_)
         print("Simulation completed successfully.")
 
     return rocket_simulation.logger.get_full_state()
@@ -168,14 +171,14 @@ if __name__ == "__main__":
     if params["mode"] == "realistic" or params["wind"] == "ERA5":
         # Initial coordinates: dummy values for a mid-latitude coastal
         # launch site.
-        lon = 360 - 75
-        lat = 38.5
-        alt = 60000
+        # lon = 360 - 75
+        # lat = 38.5
+        # alt = 60000
 
         # For testing
-        # lat = 40.0  # in deg, positive north, negative south
-        # lon = 16.5  # in deg, positive east, negative west
-        # alt = 200000
+        lat = 40.0  # in deg, positive north, negative south
+        lon = 16.5  # in deg, positive east, negative west
+        alt = 200000
 
         # Initial velocity is given in GEODETIC coordinates. Same caveat
         # as COORDINATE_SYSTEM_POS above applies here.
@@ -197,7 +200,12 @@ if __name__ == "__main__":
         # Default wind conditions: 15 m/s wind speed from 270 degrees
         # (north to south), not used if using ERA5 wind data.
         wind_field_conditions = (
-            wind_field_conditions if params["wind"] == "default" else None
+            wind_field_conditions
+            if params["wind"] == "default"
+            else [
+                0.0,
+                0.0,
+            ]  # for consistency fallback. If the position is not at ERA5 modelled coordinates, the wind will be set to zero.
         )
 
     # Initial position and velocity
@@ -208,7 +216,9 @@ if __name__ == "__main__":
         "Velocity (vx, vy, vz): ",
         velocity_vec,
     )
-    logger = Logging(n_steps)  # Initialize the logger
+    logger = Logging(
+        n_steps, initial_conditions=initial_conditions
+    )  # Initialize the logger
 
     # Initialize the rocket simulation with the given parameters and initial conditions
     rocket_simulation = Rocket(
@@ -247,3 +257,12 @@ if __name__ == "__main__":
         lim=lim,
         scale_fac=scale_fac,
     )
+
+# TODO: Create test functions, test cases to test each function and class in the codebase.
+# Check unit testing frameworks like pytest or unittest for Python.
+# Fix typehinting reviewed from Claude. Check out mypy for type checking.
+# Add Error handling to winddata if the coordinates are far away from the loaded wind data.
+# Improve the wind data model loading and Monte Carlo perturbations. Add more realistic wind data and
+# perturbations to the wind model.
+# Check specifically the J2 term physics and if it matches the geodetic model from pymap3d.
+#

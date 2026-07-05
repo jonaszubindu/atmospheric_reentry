@@ -33,7 +33,7 @@ class WindField:
         self,
         t: float,
         position_geodetic: npt.NDArray[np.float64],
-        wind_field_conditions: list = None,
+        wind_field_conditions: list = [0.0, 0.0],  # zero wind
     ) -> npt.NDArray[np.float64]:
         """Update the wind velocity vector based on the specified wind model.
 
@@ -55,9 +55,39 @@ class WindField:
             "This method should be replaced by a specific wind update function."
         )
 
-    def __init__(self, start_time: str, params: dict, logger: Logging) -> None:
+    def _verify_position_within_bounds(
+        self, lat: float, lon: float, alt: float
+    ) -> None:
+        """Verify that the given position is within the bounds of the wind data.
+
+        Parameters:
+        lat (float): Latitude in degrees.
+        lon (float): Longitude in degrees.
+        alt (float): Altitude in meters.
+        """
+        if (
+            lat < self.ymin
+            or lat > self.ymax
+            or lon < self.xmin
+            or lon > self.xmax
+            or alt < self.zmin_alt
+            or alt > self.zmax_alt
+        ):
+            message_nowind = (
+                f"WARNING: WIND NOT USED! Position (lat: {lat}, lon: {lon}, alt: {alt}) is outside the "
+                "bounds of the wind data. Wind velocity will be set to zero."
+            )
+            self._wind_failure(message_nowind)
+            self.update_wind = self._update_wind_default
+            self.params["wind"] = "default"
+
+    def __init__(
+        self, start_time: str, params: dict, logger: Logging | None = None
+    ) -> None:
+        """Initialize the WindField with the specified start time and parameters."""
         self.logger = logger
-        if params.get("wind") != "ERA5":
+        self.params = params
+        if self.params.get("wind") != "ERA5":
             self.u = 0  # eastward wind
             self.v = 0  # northward wind
             self.z = 0  # alt
@@ -101,16 +131,24 @@ class WindField:
             self.start_time = start_time
             self.update_wind = self._update_wind_model
 
-            # These numbers should be usable to make sure we are staying within
-            # the interpolation range before the code fails.
-            # For some reason comparing to zmin and zmax did not work though.
-            # Therefore the error is now just caught and a warning is issued,
-            # and the wind velocity is set to zero.
+            # At init verify position is within the bounds of the wind data, otherwise warn and set wind to zero.
             self.zmax = self.z.z.max().values
             self.zmin = self.z.z.min().values
             self.zmax_alt = geopotential_to_altitude(self.zmax)
             self.zmin_alt = geopotential_to_altitude(self.zmin)
-            self.logger = logger
+            self.xmin = self.u.longitude.min().values
+            self.xmax = self.u.longitude.max().values
+            self.ymin = self.u.latitude.min().values
+            self.ymax = self.u.latitude.max().values
+            self.tmin = self.u.time.min().values
+            self.tmax = self.u.time.max().values
+
+            if logger is not None:
+                self._verify_position_within_bounds(
+                    lat=logger.initial_conditions[0][0],
+                    lon=logger.initial_conditions[0][1],
+                    alt=logger.initial_conditions[0][2],
+                )
 
     def _wind_failure(self, message):
         warnings.warn(message, UserWarning)
@@ -123,14 +161,14 @@ class WindField:
         """Interpolate the wind data for a specific variable (u or v) at a
         specific time, latitude, longitude, and level."""
         if (
-            teval < dataset.time.min().values
-            or teval > dataset.time.max().values
+            teval < self.tmin
+            or teval > self.tmax
             or lvl_interp < 1
             or lvl_interp > 137
-            or lat < dataset.latitude.min().values
-            or lat > dataset.latitude.max().values
-            or lon < dataset.longitude.min().values
-            or lon > dataset.longitude.max().values
+            or lat < self.ymin  # lat - y
+            or lat > self.ymax
+            or lon < self.xmin  # lon - x
+            or lon > self.xmax
         ):
             return self._wind_failure(
                 f"Interpolation failed for {variable} at time {teval}, "
@@ -173,11 +211,17 @@ class WindField:
         # above the maximum altitude of the wind data or if the
         # interpolation fails for some reason. This is a simple way to
         # handle missing data.
+
         wind_velv[np.isnan(wind_velv)] = 0
         # Assuming no vertical wind component for simplicity
         self.wind_velv = wind_velv
 
-    def _update_wind_model(self, t, position_geodetic, wind_field_conditions=None):
+    def _update_wind_model(
+        self,
+        t: float,
+        position_geodetic: npt.NDArray[np.float64],
+        wind_field_conditions: list[np.float64] = [0.0, 0.0],
+    ):
         """Update the wind velocity vector based on the ERA5 wind model.
 
         wind_field_conditions is not used for the model, but included for
@@ -200,12 +244,15 @@ class WindField:
         self,
         t: float,
         position: npt.NDArray[np.float64],
-        wind_field_conditions: list[np.float64, np.float64] = [270.0, 15.0],
+        wind_field_conditions: list[np.float64] = [
+            0.0,
+            0.0,
+        ],  # internal default wind condition
     ) -> npt.NDArray[np.float64]:
         """Update the wind velocity vector based on default wind conditions,
         ignoring position and time.
 
-        Default wind conditions: 15 m/s wind speed from 270 degrees (north to
+        Default wind conditions: 0 m/s wind speed from 0 degrees (north to
         south). Unused arguments are kept for compatibility.
         """
         wind_dir, wind_vel = wind_field_conditions

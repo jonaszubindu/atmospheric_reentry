@@ -6,7 +6,7 @@ from .utils import altitude_to_geopotential
 
 # potentially upgrade type hints to numpy.typing.NDArray[np.float64] for better clarity and type checking
 class Logging:
-    def __init__(self, n_steps: int) -> None:
+    def __init__(self, n_steps: int, initial_conditions: list) -> None:
         self.i = 0
 
         # Scalars
@@ -25,6 +25,8 @@ class Logging:
         self.position_geodetic = np.full((n_steps, 3), np.nan)
         self.velocity_geodetic = np.full((n_steps, 3), np.nan)
 
+        # Register initial conditions
+        self.initial_conditions = initial_conditions
         # Wind
         self.wind_velocity = np.full((n_steps, 3), np.nan)
 
