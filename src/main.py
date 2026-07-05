@@ -168,13 +168,14 @@ if __name__ == "__main__":
     if params["mode"] == "realistic" or params["wind"] == "ERA5":
         # Initial coordinates: dummy values for a mid-latitude coastal
         # launch site.
-        # lon = 360 - 75
-        # lat = 38.5
-        # alt = 60000
+        lon = 360 - 75
+        lat = 38.5
+        alt = 60000
 
-        lat = 40.0  # in deg, positive north, negative south
-        lon = 16.5  # in deg, positive east, negative west
-        alt = 200000
+        # For testing
+        # lat = 40.0  # in deg, positive north, negative south
+        # lon = 16.5  # in deg, positive east, negative west
+        # alt = 200000
 
         # Initial velocity is given in GEODETIC coordinates. Same caveat
         # as COORDINATE_SYSTEM_POS above applies here.
