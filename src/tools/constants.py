@@ -2,7 +2,7 @@ import numpy as np
 
 EARTH_RADIUS: float = 6371000  # Earth's radius in meters
 G0: float = 9.80665  # Standard gravity at sea level in m/s^2
-SEA_LEVEL_AIR_DENSITY: float = 0.0  # 1.225  # Air density at sea level in kg/m^3
+SEA_LEVEL_AIR_DENSITY: float = 1.225  # 1.225  # Air density at sea level in kg/m^3
 SEA_LEVEL_PRESSURE: float = 101325  # Pressure at sea level in Pascals
 GM: float = 3.986004418e14  # WGS84 defining constant, m^3/s^2
 RE: float = 6378137.0  # WGS84 semi-major axis, m (defined exact)

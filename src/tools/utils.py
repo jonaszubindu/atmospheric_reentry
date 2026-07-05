@@ -61,7 +61,7 @@ class PhysicsFunctions(StateEstimation):
         """Compute the forces arising due to Earth's rotation."""
         position = self.get_position_cartesian()
         velocity = self.get_velocity_cartesian()
-
+        # Compute ellipsoidal gravity with J2 perturbation and add pseudo forces due to Earth's rotation.
         x, y, z = position
         r: float = np.linalg.norm(position)
         assert r > 0, "Position vector must be positive to compute gravity."
