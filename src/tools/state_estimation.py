@@ -86,6 +86,34 @@ class StateEstimation:
         )
 
     @staticmethod
+    def convert_cartesian_to_geodetic(
+        position_cartesian: npt.NDArray[np.float64],
+    ) -> npt.NDArray[np.float64]:
+        """Convert cartesian coordinates (x, y, z) to geodetic coordinates
+        (latitude, longitude, altitude)."""
+        x, y, z = position_cartesian
+        return np.asarray(pm.ecef2geodetic(x, y, z))
+
+    @staticmethod
+    def convert_velocity_cartesian_to_geodetic(
+        velocity_cartesian: npt.NDArray[np.float64], lat: float, lon: float
+    ) -> npt.NDArray[np.float64]:
+        """Convert cartesian velocity (vx, vy, vz) to geodetic velocity
+        (v_lat, v_lon, v_alt). Assumes velocity is in ECEF coordinates for
+        cartesian velocity and we want to convert it to ENU (East, North, Up)
+        coordinates for geodetic velocity."""
+        return np.asarray(
+            pm.ecef2enuv(
+                velocity_cartesian[0],
+                velocity_cartesian[1],
+                velocity_cartesian[2],
+                lat,
+                lon,
+                deg=True,
+            )
+        )
+
+    @staticmethod
     def convert_geodetic_to_cartesian(
         position_geodetic: npt.NDArray[np.float64],
     ) -> npt.NDArray[np.float64]:

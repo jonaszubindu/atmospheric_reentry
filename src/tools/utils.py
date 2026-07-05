@@ -37,12 +37,12 @@ class PhysicsFunctions(StateEstimation):
 
     def _compute_gravitational_acceleration(self) -> npt.NDArray[np.float64]:
         """Compute the correct gravitational acceleration with respect to the
-        Earth's center, pointing opposite to the position vector."""
+        Earth's center, for a spherical Earth, pointing opposite to the position vector."""
         position = self.get_position_cartesian()
         r = np.linalg.norm(position)  # Distance from the center of the Earth
         assert r > 0, "Position vector must be positive to compute gravity."
         return np.asarray(
-            -const.G * const.M / r**2 * position / np.linalg.norm(position),
+            -const.GM / r**2 * position / r,
             dtype=np.float64,
         )
 
@@ -61,14 +61,23 @@ class PhysicsFunctions(StateEstimation):
         """Compute the forces arising due to Earth's rotation."""
         position = self.get_position_cartesian()
         velocity = self.get_velocity_cartesian()
-        # assert ... # make sure position vector is in ECEF coordinates.
-        acc = self._compute_gravitational_acceleration()  # "realistic" g
+
+        x, y, z = position
+        r: float = np.linalg.norm(position)
+        assert r > 0, "Position vector must be positive to compute gravity."
+        k: float = 1.5 * const.J2 * (const.RE / r) ** 2
+        z2r2 = 5.0 * z**2 / r**2
+        ax = -const.GM * x / r**3 * (1.0 - k * (z2r2 - 1.0))
+        ay = -const.GM * y / r**3 * (1.0 - k * (z2r2 - 1.0))
+        az = -const.GM * z / r**3 * (1.0 - k * (z2r2 - 3.0))
+        acc = np.array([ax, ay, az], dtype=np.float64)
 
         coriolis_acc = -2 * np.cross(const.EARTH_ROTATION, velocity)
         centrifugal_acc = -np.cross(
             const.EARTH_ROTATION, np.cross(const.EARTH_ROTATION, position)
         )
         acc += coriolis_acc + centrifugal_acc
+
         return acc
 
     def _compute_drag_force(
@@ -178,15 +187,15 @@ def plot_results(
             altitude = out_results["position geodetic alt"]
             velocity = np.vstack(
                 (
-                    out_results["velocity geodetic lat"],
-                    out_results["velocity geodetic lon"],
+                    out_results["velocity geodetic East"],
+                    out_results["velocity geodetic North"],
                     out_results["velocity geodetic alt"],
                 )
             ).T
             positions = np.vstack(
                 (
-                    out_results["position geodetic lat"],
                     out_results["position geodetic lon"],
+                    out_results["position geodetic lat"],
                 )
             ).T
         else:
@@ -233,15 +242,15 @@ def plot_results(
                 altitude = out["position geodetic alt"]
                 velocity = np.vstack(
                     (
-                        out["velocity geodetic lat"],
-                        out["velocity geodetic lon"],
+                        out["velocity geodetic East"],
+                        out["velocity geodetic North"],
                         out["velocity geodetic alt"],
                     )
                 ).T
                 positions = np.vstack(
                     (
-                        out["position geodetic lat"],
                         out["position geodetic lon"],
+                        out["position geodetic lat"],
                     )
                 ).T
             elif params["mode"] == "simplified":
@@ -308,8 +317,8 @@ def plot_results(
     if scale_fac == 1:
         ax2.set_xlabel("Longitude (deg)")
         ax2.set_ylabel("Latitude (deg)")
-        ax2.set_xticklabels([f"{tick:.2f}°" for tick in ax2.get_xticks()], rotation=45)
-        ax2.set_yticklabels([f"{tick:.2f}°" for tick in ax2.get_yticks()])
+        ax2.set_xticklabels([f"{tick:.3f}°" for tick in ax2.get_xticks()], rotation=45)
+        ax2.set_yticklabels([f"{tick:.3f}°" for tick in ax2.get_yticks()])
     else:
         ax2.set_xlabel("X Position (km)")
         ax2.set_ylabel("Y Position (km)")
@@ -318,6 +327,10 @@ def plot_results(
         ax2.set_ylim(-lim, lim)
     ax3.set_xlabel("Velocity X (m/s)")
     ax3.set_ylabel("Velocity Y (m/s)")
+    ax1.legend()
+    ax11.legend()
+    ax2.legend()
+    ax3.legend()
     plt.show()
 
     return fig

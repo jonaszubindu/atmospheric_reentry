@@ -19,16 +19,22 @@ def verbose_message(
     ):
         lat, lon, alt = rocket_simulation.get_position_geodetic()
         v_lat, v_lon, v_alt = rocket_simulation.get_velocity_geodetic()
+        _, acc = rocket_simulation.equations_of_motion()
+        acc_geodetic = StateEstimation.convert_velocity_cartesian_to_geodetic(
+            acc, lat, lon
+        )
         wind_vel_geodetic = wind_field.wind_velv
 
         print(
             f"Time: {time0:.2f} s, "
             f"Position (lat, lon, alt): "
             f"({lat:.2f}°, {lon:.2f}°, {alt:.2f} m), "
+            f"Acceleration (a_lat, a_lon, a_alt): ",
+            f"({acc_geodetic[0]:.2f}, {acc_geodetic[1]:.2f}, {acc_geodetic[2]:.2f}) m/s², "
             f"Velocity (v_lat, v_lon, v_alt): "
             f"({v_lat:.2f}, {v_lon:.2f}, {v_alt:.2f}) m/s, "
             f"Wind Velocity (v_wind_lat, v_wind_lon, v_wind_alt): "
-            f"({wind_vel_geodetic[0]:.2f}, {wind_vel_geodetic[1]:.2f}, {wind_vel_geodetic[2]:.2f}) m/s"
+            f"({wind_vel_geodetic[0]:.2f}, {wind_vel_geodetic[1]:.2f}, {wind_vel_geodetic[2]:.2f}) m/s",
         )
     else:
         position = rocket_simulation.get_position_cartesian()
@@ -147,31 +153,37 @@ if __name__ == "__main__":
     # cartesian degrees, meaning 0 degrees is eastward, 90 degrees is
     # northward, 180 degrees is westward and 270 degrees is southward,
     # matching the coordinate system of the simulation.
-    wind_field_conditions = [270.0, 15.0]
+    wind_field_conditions = [0.0, 0.0]  # [270.0, 15.0]
 
     if params["wind"] == "default" and params["mode"] == "simplified":
         # This for now also automatically assumes a flat earth.
         # Initial position (x, y, z) in meters, rocket dropped at 60 km
         # height.
-        position_vec = np.array([0, 0, 60000], dtype=np.float64)
+        position_vec = np.array([0, 0, 200000], dtype=np.float64)
         # Initial velocity (vx, vy, vz) in m/s, rocket dropped at 70 m/s
         # horizontal in x and y and -280 m/s vertical velocity.
-        velocity_vec = np.array([70, 70, -280], dtype=np.float64)
+        velocity_vec = np.array([0.0, 5000.0, 0.0], dtype=np.float64)
         wind_field_conditions = wind_field_conditions
 
     if params["mode"] == "realistic" or params["wind"] == "ERA5":
         # Initial coordinates: dummy values for a mid-latitude coastal
         # launch site.
-        lon = 360 - 75
-        lat = 38.5
-        alt = 60000
+        # lon = 360 - 75
+        # lat = 38.5
+        # alt = 60000
+
+        lat = 40.0  # in deg, positive north, negative south
+        lon = 16.5  # in deg, positive east, negative west
+        alt = 200000
 
         # Initial velocity is given in GEODETIC coordinates. Same caveat
         # as COORDINATE_SYSTEM_POS above applies here.
         # Initial velocity (vx, vy, vz) in m/s, rocket dropped at 70 m/s
         # horizontal in x and y and -280 m/s vertical velocity.
         position_init = np.array([lat, lon, alt], dtype=np.float64)
-        velocity_init = np.array([70, 70, -280], dtype=np.float64)
+        velocity_init = np.array(
+            [0.0, 1000.0, 0.0], dtype=np.float64
+        )  # vE, vN, vU in m/s
 
         velocity_vec = StateEstimation.convert_velocity_geodetic_to_cartesian(
             velocity_init, lat, lon
