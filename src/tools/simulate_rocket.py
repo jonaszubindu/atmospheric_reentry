@@ -121,14 +121,13 @@ class Rocket(PhysicsFunctions):
         coefficient."""
         # get altitude from the current position of the rocket
         altitude = self.calc_altitude_abv_sea_level()
-        if altitude < 10000:  # If altitude < 10000m, use parachute drag
+        if altitude < self.params.get(
+            "parachute_opening_altitude"
+        ):  # If altitude < parachute_opening_altitude, use parachute drag
             drag_coeff = self.params["drag_coefficient_parachute"]
-        else:
-            drag_coeff = self.params["drag_coefficient"]
-
-        if altitude < 10000:
             cross_sectional_area = self.params["cross_sectional_area_parachute"]
         else:
+            drag_coeff = self.params["drag_coefficient"]
             cross_sectional_area = self.params["cross_sectional_area"]
 
         air_density = self.get_air_density()

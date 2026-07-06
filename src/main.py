@@ -134,6 +134,8 @@ if __name__ == "__main__":
         # which wind data to use; use "default" for default behaviour,
         # use "ERA5" for realistic wind data.
         "wind": wind_data,
+        # Set altitude at which the parachute should open
+        "parachute_opening_altitude": 10000,
         # use 'realistic' to use all realistic assumptions and
         # parameters, or use 'simplified' assumptions for testing and
         # debugging, e.g. no drag, constant gravity, etc.
@@ -261,8 +263,7 @@ if __name__ == "__main__":
 # TODO: Create test functions, test cases to test each function and class in the codebase.
 # Check unit testing frameworks like pytest or unittest for Python.
 # Fix typehinting reviewed from Claude. Check out mypy for type checking.
-# Add Error handling to winddata if the coordinates are far away from the loaded wind data.
 # Improve the wind data model loading and Monte Carlo perturbations. Add more realistic wind data and
-# perturbations to the wind model.
+# perturbations to the wind model. Maybe atmospheric model, for density, etc.
 # Check specifically the J2 term physics and if it matches the geodetic model from pymap3d.
 #
