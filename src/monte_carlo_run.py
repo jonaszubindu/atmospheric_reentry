@@ -27,7 +27,7 @@ from joblib import Parallel, delayed
 from main import main
 from tools.utils import plot_results
 from tools.windfield import WindField
-from tools.state_estimation import StateEstimation
+from tools.state_estimation import RealState
 from tools.simulate_rocket import Rocket
 from tools.logging import Logging
 
@@ -70,10 +70,10 @@ if params["mode"] == "realistic" or params["wind"] == "ERA5":
     position_init = np.array([lat, lon, alt])
     velocity_init = np.array([70, 70, -280])
 
-    velocity_vec = StateEstimation.convert_velocity_geodetic_to_cartesian(
+    velocity_vec = RealState.convert_velocity_geodetic_to_cartesian(
         velocity_init, lat, lon
     )
-    position_vec = StateEstimation.convert_geodetic_to_cartesian(position_init)
+    position_vec = RealState.convert_geodetic_to_cartesian(position_init)
     # Scale factor for plotting, to convert from meters to kilometers
     # for position and from m/s to km/s for velocity, for better
     # visualization of the trajectory and velocity.

@@ -6,61 +6,70 @@ import pandas as pd
 from typing import Optional
 import numpy.typing as npt
 
-from .state_estimation import StateEstimation
+from .state_estimation import RealState
 
 from . import constants as const
 
 
-class PhysicsFunctions(StateEstimation):
+class PhysicsFunctions(RealState):
     """A class containing various physics functions used in the rocket
     simulation. This class is designed to be flexible and can be extended
     with additional physics functions as needed."""
 
     def __init__(self) -> None:
         """Initialize the PhysicsFunctions class."""
-        super().__init__()  # Initialize the StateEstimation class
+        super().__init__()  # Initialize the RealState class
 
-    def _simple_airdensity(self) -> float:
+    def _simple_airdensity(self, state) -> float:
         """Return a constant air density for the simplified model."""
         return const.SEA_LEVEL_AIR_DENSITY  # Air density at sea level in kg/m^3
 
-    def _realistic_airdensity(self) -> float:
+    def _realistic_airdensity(self, state) -> float:
         """Compute air density based on altitude using an exponential model."""
-        altitude = self.get_position_geodetic()[2]
+        altitude = self._calc_alt_geodetic(state)
         return const.SEA_LEVEL_AIR_DENSITY * np.exp(-altitude / const.scale_height)
 
-    def _simple_gravity(self) -> npt.NDArray[np.float64]:
+    def _simple_gravity(self, state) -> npt.NDArray[np.float64]:
         """Simple model for gravitational acceleration, assuming constant
         gravity at sea level."""
         # Gravitational acceleration in m/s^2, pointing downwards in z.
         return np.array([0, 0, -const.G0], dtype=np.float64)
 
-    def _compute_gravitational_acceleration(self) -> npt.NDArray[np.float64]:
+    def _gravitational_acceleration_spherical_eci(
+        self, state
+    ) -> npt.NDArray[np.float64]:
         """Compute the correct gravitational acceleration with respect to the
         Earth's center, for a spherical Earth, pointing opposite to the position vector."""
-        position = self.get_position_cartesian()
-        r = np.linalg.norm(position)  # Distance from the center of the Earth
+        r = np.linalg.norm(state[:3])  # Distance from the center of the Earth
         assert r > 0, "Position vector must be positive to compute gravity."
         return np.asarray(
-            -const.GM / r**2 * position / r,
+            -const.GM / r**2 * state[:3] / r,
             dtype=np.float64,
         )
 
-    def _calc_alt_simpl(self) -> np.float64:
+    def _calc_alt_simpl(self, state) -> np.float64:
         """Calculate altitude above the surface of the Earth based on the
         position vector, assuming a flat Earth for simplicity."""
         # Assuming z-component of position is altitude for the simplified model.
-        return self.get_position_cartesian()[2]
+        return state[2]
 
-    def _calc_alt_realistic(self) -> np.float64:
+    def _calc_alt_geodetic(self, state) -> np.float64:
+        """Calculate altitude above the surface of the Earth based on the
+        position vector, using geodetic coordinates."""
+        return self.convert_cartesian_to_geodetic(state[:3])[2]
+
+    def _calc_alt_realistic(self, state) -> np.float64:
         """Calculate altitude above the surface of the Earth based on the
         position vector."""
-        return self.get_position_geodetic()[2]
+        return (
+            np.linalg.norm(state[:3]) - const.EARTH_RADIUS
+        )  # Distance from the center of the Earth
 
-    def _spherical_earth_forces(self) -> npt.NDArray[np.float64]:
-        """Compute the forces arising due to Earth's rotation."""
-        position = self.get_position_cartesian()
-        velocity = self.get_velocity_cartesian()
+    def _gravitational_acceleration_ecef(self, state) -> npt.NDArray[np.float64]:
+        """Compute the forces arising due to Earth's rotation. Should only be used in ECEF
+        coordinates. Switching to only ECI and geodetic, so this function not needed for now."""
+        position = state[:3]
+        velocity = state[3:]
         # Compute ellipsoidal gravity with J2 perturbation and add pseudo forces due to Earth's rotation.
         x, y, z = position
         r: float = np.linalg.norm(position)
@@ -80,26 +89,32 @@ class PhysicsFunctions(StateEstimation):
 
         return acc
 
-    def _compute_drag_force(
-        self, air_density: float, drag_coeff: float, cross_sectional_area: float
+    def compute_drag_force(
+        self,
+        state,
+        wind_velv: npt.NDArray[np.float64],
+        air_density: float,
+        drag_coeff: float,
+        cross_sectional_area: float,
     ) -> npt.NDArray[np.float64]:
         """Calculate the drag force with a vector opposite to velocity."""
-        velocity = self.get_velocity_cartesian()
-        speed = np.linalg.norm(velocity)
+        velocity = state[3:]  # Extract velocity vector from state
+        true_air_velocity = velocity - wind_velv  # correct for local wind
+        speed = np.linalg.norm(true_air_velocity)
         return (
             -0.5
             * air_density
             * speed**2
             * drag_coeff
             * cross_sectional_area
-            * velocity
+            * true_air_velocity
             / speed
         )
 
-    def _alt_to_pres(self) -> float:
+    def _alt_to_pres(self, state) -> float:
         """Simple model to convert altitude to pressure using the barometric
         formula."""
-        altitude = self.get_position_geodetic()[2]
+        altitude = self._calc_alt_realistic(state)
         return const.SEA_LEVEL_PRESSURE * np.exp(-altitude / const.scale_height)
 
     @staticmethod

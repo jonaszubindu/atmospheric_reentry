@@ -1,11 +1,48 @@
 import warnings
 from .utils import PhysicsFunctions
 from .windfield import WindField
+from .logging import Logging
 import numpy as np
 import numpy.typing as npt
 
+from scipy.integrate import RK45
+
 
 class Rocket(PhysicsFunctions):
+    # Init functions for later ################################################
+
+    def calc_altitude_abv_sea_level(self, state: npt.NDArray[np.float64]) -> float:
+        """Calculate the altitude above sea level based on the current position of the rocket.
+        Parameters:
+        state (array): Current state of the rocket [position, velocity].
+        Returns:
+        float: Altitude above sea level in meters."""
+        raise NotImplementedError(
+            "This method should be implemented in a subclass or set during initialization."
+        )
+
+    def grav_acc(self, state: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        """Calculate the gravitational acceleration based on the current position of the rocket.
+        Parameters:
+        state (array): Current state of the rocket [position, velocity].
+        Returns:
+        array: Gravitational acceleration vector in m/s^2."""
+        raise NotImplementedError(
+            "This method should be implemented in a subclass or set during initialization."
+        )
+
+    def get_air_density(self, state: npt.NDArray[np.float64]) -> float:
+        """Calculate the air density based on the current position of the rocket.
+        Parameters:
+        state (array): Current state of the rocket [position, velocity].
+        Returns:
+        float: Air density in kg/m^3."""
+        raise NotImplementedError(
+            "This method should be implemented in a subclass or set during initialization."
+        )
+
+    ################################################################
+
     """
     Simulate the rocket's flight using the equations of motion.
 
@@ -24,7 +61,6 @@ class Rocket(PhysicsFunctions):
         'cross_sectional_area_parachute': 18,  # parachute area in m^2
         'wind': "ERA5",  # which wind data to use; "ERA5" for realistic
         'mode': 'realistic',  # 'realistic' or 'simplified' assumptions
-        'pseudo_forces': True,  # include Earth-rotation pseudo-forces
         'verbose': False  # print rocket state at each time step
     }
 
@@ -39,12 +75,14 @@ class Rocket(PhysicsFunctions):
         self,
         initial_conditions: list[npt.NDArray[np.float64], npt.NDArray[np.float64]],
         params: dict,
-        logger: object,
+        logger: Logging,
+        wind_field: WindField,
     ) -> None:
         """Initialize the Rocket simulation with initial conditions and
         parameters."""
         super().__init__()
         self.params = params
+        self.wind_field = wind_field
         self.state_cartesian = np.hstack(
             initial_conditions, dtype=np.float64
         )  # set the initial state
@@ -73,18 +111,9 @@ class Rocket(PhysicsFunctions):
             self.params.get("mode") == "realistic" and self.params.get("wind") != "ERA5"
         ):
             # Use realistic models for altitude, gravity, and air density
-            self.calc_altitude_abv_sea_level = self._calc_alt_realistic
+            self.calc_altitude_abv_sea_level = self._calc_alt_geodetic
             self.get_air_density = self._realistic_airdensity
-            # Use realistic gravity model, with option to include pseudo
-            # forces if specified
-            if self.params.get("pseudo_forces") is True:
-                warnings.warn(
-                    "Using pseudo forces (Coriolis and centrifugal) in realistic mode.",
-                    UserWarning,
-                )
-                self.grav_acc = self._spherical_earth_forces
-            else:
-                self.grav_acc = self._compute_gravitational_acceleration
+            self.grav_acc = self._gravitational_acceleration_ecef
         elif self.params.get("wind") == "ERA5":
             # Use realistic models for altitude, gravity, and air density
             # plus ERA5 wind data
@@ -92,18 +121,9 @@ class Rocket(PhysicsFunctions):
                 "Using ERA5 wind data automatically sets mode to realistic.",
                 UserWarning,
             )
-            self.calc_altitude_abv_sea_level = self._calc_alt_realistic
+            self.calc_altitude_abv_sea_level = self._calc_alt_geodetic
             self.get_air_density = self._realistic_airdensity
-            # Use realistic gravity model, with option to include pseudo
-            # forces if specified
-            if self.params.get("pseudo_forces") is True:
-                warnings.warn(
-                    "Using pseudo forces (Coriolis and centrifugal) in realistic mode.",
-                    UserWarning,
-                )
-                self.grav_acc = self._spherical_earth_forces
-            else:
-                self.grav_acc = self._compute_gravitational_acceleration
+            self.grav_acc = self._gravitational_acceleration_ecef
         else:
             # If no valid mode is specified, default to simplified models
             # and issue a warning
@@ -116,11 +136,22 @@ class Rocket(PhysicsFunctions):
             self.grav_acc = self._simple_gravity
             self.get_air_density = self._simple_airdensity
 
-    def get_drag_force(self) -> npt.NDArray[np.float64]:
+        # Initialize the ODE solver for the rocket's equations of motion
+        self.solver = RK45(
+            self.equations_of_motion,
+            0,
+            self.state_cartesian,
+            self.params.get("tmax"),
+            max_step=self.params.get("max_step"),
+        )
+
+    def get_drag_force(
+        self, state: npt.NDArray[np.float64], wind_velv: npt.NDArray[np.float64]
+    ) -> npt.NDArray[np.float64]:
         """Calculate the drag force based on velocity and drag
         coefficient."""
         # get altitude from the current position of the rocket
-        altitude = self.calc_altitude_abv_sea_level()
+        altitude = self.calc_altitude_abv_sea_level(state)
         if altitude < self.params.get(
             "parachute_opening_altitude"
         ):  # If altitude < parachute_opening_altitude, use parachute drag
@@ -130,67 +161,73 @@ class Rocket(PhysicsFunctions):
             drag_coeff = self.params["drag_coefficient"]
             cross_sectional_area = self.params["cross_sectional_area"]
 
-        air_density = self.get_air_density()
+        air_density = self.get_air_density(state)
 
-        return self._compute_drag_force(air_density, drag_coeff, cross_sectional_area)
+        return self.compute_drag_force(
+            state, wind_velv, air_density, drag_coeff, cross_sectional_area
+        )
+
+    def _update_environment(self, t) -> None:
+        """Update the wind field based on the current position of the rocket
+        and the specified wind field conditions. No need to pass the state, since the state
+        is already internally updated."""
+        if self.params.get("wind") == "ERA5" or self.params.get("mode") == "realistic":
+            position_geodetic = self.get_position_geodetic()
+            # Get current wind for present position
+            wind_vel_geodetic = self.wind_field.get_wind(t, position_geodetic)
+            lat, lon, _ = position_geodetic
+            wind_velv = self.convert_velocity_geodetic_to_cartesian(
+                wind_vel_geodetic, lat, lon
+            )
+        else:  # simplified mode, or default wind.
+            position = self.get_position_cartesian()
+            wind_velv = self.wind_field.get_wind(t, position)
+        return wind_velv
 
     def equations_of_motion(
-        self,
+        self, t: float, state: npt.NDArray[np.float64]
     ) -> list[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         """
         EOMs for the rocket, calculating the acceleration based on the
         current state and forces acting on the rocket.
         """
         # Get current position and velocity from state
-        velocity = self.get_velocity_cartesian()
+        velocity = state[3:]
 
         # Calculate drag force - coordinate system assertion happens
         # already in subfunctions.
-        drag_force = self.get_drag_force()
-        grav_acc = self.grav_acc()
+        # if wind should be sampled at every integration step, which can be taxing for
+        # real wind data, uncomment the following line and comment out the next line,
+        # which uses the last wind velocity.
+        wind_velv = self._update_environment(t)
+        drag_force = self.get_drag_force(state, wind_velv)
+
+        # Only evaluate wind at every global integration step
+        # drag_force = self.get_drag_force(state, self.wind_field.wind_velv)
+        g_acc = self.grav_acc(state)
 
         # Calculate acceleration: F = ma => a = F/m, drag force is negative
-        accelerationv = grav_acc + drag_force / self.params["mass"]
+        accelerationv = g_acc + drag_force / self.params["mass"]
+        state_derivative = np.hstack((velocity, accelerationv))
 
-        return [velocity, accelerationv]
+        return state_derivative
 
     def update_state(
         self,
-        t: npt.NDArray[np.float64],
-        wind_field: WindField,
-        wind_field_conditions: list[npt.NDArray[np.float64], npt.NDArray[np.float64]],
+        t: float,
     ) -> None:
         """
         Update the state of the rocket based on the equations of motion
         and wind conditions.
         """
-        velocity, acceleration = self.equations_of_motion()
-        position = self.get_position_cartesian()
 
-        # Need to get the correct wind velocity vector in the cartesian
-        # coordinate system of the simulation; wind is given as
-        # horizontal to the surface of the Earth. fix this, might be able to make nicer
-        if self.params.get("wind") == "ERA5" or self.params.get("mode") == "realistic":
-            position_geodetic = self.get_position_geodetic()
-            wind_field.update_wind(t[0], position_geodetic, wind_field_conditions)
-            wind_vel_geodetic = wind_field.wind_velv
-            lat, lon, _ = position_geodetic
-            wind_velv = self.convert_velocity_geodetic_to_cartesian(
-                wind_vel_geodetic, lat, lon
-            )
-        else:  # simplified mode, or default wind.
-            wind_field.update_wind(t[0], position, wind_field_conditions)
-            wind_velv = wind_field.wind_velv
+        self.solver.step()
+        # wind_velv = self._update_environment(t)
 
-        new_velocity = velocity + acceleration * (t[1] - t[0])
-        new_position = (
-            position + new_velocity * (t[1] - t[0]) + wind_velv * (t[1] - t[0])
-        )
-
-        self.set_position_cartesian(new_position)
-        self.set_velocity_cartesian(new_velocity)
-        self.estimate_state(t[1])
+        # Update position and velocity with wind effects
+        self.set_position_cartesian(self.solver.y[:3])
+        self.set_velocity_cartesian(self.solver.y[3:])
 
         # Log the state of the rocket at the new time step
-        self.logger.log_state(self, t[1])
-        self.logger.log_wind(wind_velv)  # Log the wind velocity
+        self.logger.log_state(self, t)
+        self.logger.log_wind(self.wind_field.wind_velv)  # Log the wind velocity

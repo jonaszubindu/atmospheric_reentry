@@ -40,7 +40,7 @@ class Logging:
 
         self.position[i] = rocket.get_position_cartesian()
         self.velocity[i] = rocket.get_velocity_cartesian()
-        altitude = rocket.calc_altitude_abv_sea_level()
+        altitude = rocket.get_position_geodetic()[2]
         self.altitude[i] = altitude
 
         if (
@@ -51,9 +51,11 @@ class Logging:
             self.velocity_geodetic[i] = rocket.get_velocity_geodetic()
             self.geopotential[i] = altitude_to_geopotential(altitude)
 
-        self.drag_force[i] = np.linalg.norm(rocket.get_drag_force())
-        self.air_density[i] = rocket.get_air_density()
-        self.grav_acc_norm[i] = np.linalg.norm(rocket.grav_acc())
+        self.drag_force[i] = np.linalg.norm(
+            rocket.get_drag_force(rocket.state_cartesian, rocket.wind_field.wind_velv)
+        )
+        self.air_density[i] = rocket.get_air_density(rocket.state_cartesian)
+        self.grav_acc_norm[i] = np.linalg.norm(rocket.grav_acc(rocket.state_cartesian))
 
         self.i += 1
 

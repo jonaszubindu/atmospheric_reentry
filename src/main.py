@@ -3,7 +3,7 @@ import pandas
 
 from tools.logging import Logging
 from tools.simulate_rocket import Rocket
-from tools.state_estimation import StateEstimation
+from tools.state_estimation import RealState
 from tools.utils import (
     plot_results,
 )
@@ -19,9 +19,11 @@ def verbose_message(
     ):
         lat, lon, alt = rocket_simulation.get_position_geodetic()
         v_lat, v_lon, v_alt = rocket_simulation.get_velocity_geodetic()
-        _, acc = rocket_simulation.equations_of_motion()
-        acc_geodetic = StateEstimation.convert_velocity_cartesian_to_geodetic(
-            acc, lat, lon
+        state_derivative = rocket_simulation.equations_of_motion(
+            rocket_simulation.tcurrent, rocket_simulation.state_cartesian
+        )
+        acc_geodetic = RealState.convert_velocity_cartesian_to_geodetic(
+            state_derivative[3:], lat, lon
         )
         wind_vel_geodetic = wind_field.wind_velv
 
@@ -51,24 +53,22 @@ def verbose_message(
 
 
 def main(
-    t: np.ndarray,
+    trange: np.ndarray,
     rocket_simulation: Rocket,
-    wind_field: WindField,
-    wind_field_conditions: list,
     verbose: bool = False,
 ) -> pandas.DataFrame:
     """Run the rocket simulation with the given wind conditions."""
 
-    for ii in range(len(t)):
-        time0 = t[ii]
-        time1 = t[ii + 1] if ii + 1 < len(t) else t[ii]
+    for ii in range(len(trange)):
+        tcurrent = trange[ii]
         # Update state and conditions
-        rocket_simulation.update_state(
-            [time0, time1], wind_field, wind_field_conditions
+        rocket_simulation.update_state(tcurrent)
+        altitude = rocket_simulation.calc_altitude_abv_sea_level(
+            rocket_simulation.get_position_cartesian()
         )
-        altitude = rocket_simulation.calc_altitude_abv_sea_level()
-        if verbose and ii % 100 == 0:  # Print every 100 steps to reduce output
-            verbose_message(rocket_simulation, wind_field, time0)
+        print(altitude)
+        # if verbose and ii % 100 == 0:  # Print every 100 steps to reduce output
+        verbose_message(rocket_simulation, rocket_simulation.wind_field, tcurrent)
 
         if altitude <= 0.0:
             # The rocket has hit the ground, stop the simulation
@@ -122,7 +122,7 @@ if __name__ == "__main__":
 
     params = {
         # mass of the rocket in kg, assumed to be a pointmass
-        "mass": 700,
+        "mass": 100,
         # drag coefficient rocket (dimensionless)
         "drag_coefficient": 1.4,  # default 1.4,
         # drag coefficient with parachute deployed (dimensionless)
@@ -135,14 +135,19 @@ if __name__ == "__main__":
         # use "ERA5" for realistic wind data.
         "wind": wind_data,
         # Set altitude at which the parachute should open
-        "parachute_opening_altitude": 10000,
+        "parachute_opening_altitude": 1000,
+        # maximum simulation time in seconds
+        "tmax": 3000,
+        # maximum stepsize
+        "max_step": 0.3,
+        # solver method for the ODE integration, choose from
+        # "RK45", "RK23", "DOP853", "Radau", "BDF", "LSODA" default is "RK45".
+        # See scipy.integrate.solve_ivp for more details.
+        "solver_method": "RK45",
         # use 'realistic' to use all realistic assumptions and
         # parameters, or use 'simplified' assumptions for testing and
         # debugging, e.g. no drag, constant gravity, etc.
         "mode": mode,
-        # include pseudo-forces due to Earth's rotation in the
-        # equations of motion
-        "pseudo_forces": True,
         # print the state of the rocket at each time step for
         # debugging and analysis
         "verbose": True,
@@ -152,7 +157,7 @@ if __name__ == "__main__":
     # Time array from 0 to 3000 seconds with 10000 time steps was so far
     # stable in all simulation runs. At 3000 steps, oscillations show up
     # in the velocity and altitude.
-    t = np.linspace(0, 3000, n_steps := 10000)
+    trange = np.linspace(0, 3000, n_steps := 10000)
     # Default wind conditions: 270 degrees (north to south), 15 m/s wind
     # speed, not used if using ERA5 wind data. Degrees are given as
     # cartesian degrees, meaning 0 degrees is eastward, 90 degrees is
@@ -164,10 +169,10 @@ if __name__ == "__main__":
         # This for now also automatically assumes a flat earth.
         # Initial position (x, y, z) in meters, rocket dropped at 60 km
         # height.
-        position_vec = np.array([0, 0, 200000], dtype=np.float64)
+        position_vec = np.array([0, 0, 2000], dtype=np.float64)
         # Initial velocity (vx, vy, vz) in m/s, rocket dropped at 70 m/s
         # horizontal in x and y and -280 m/s vertical velocity.
-        velocity_vec = np.array([0.0, 5000.0, 0.0], dtype=np.float64)
+        velocity_vec = np.array([500.0, 0.0, 0.0], dtype=np.float64)
         wind_field_conditions = wind_field_conditions
 
     if params["mode"] == "realistic" or params["wind"] == "ERA5":
@@ -178,9 +183,9 @@ if __name__ == "__main__":
         # alt = 60000
 
         # For testing
-        lat = 40.0  # in deg, positive north, negative south
-        lon = 16.5  # in deg, positive east, negative west
-        alt = 200000
+        lat = 46.9  # in deg, positive north, negative south
+        lon = 7.5  # in deg, positive east, negative west
+        alt = 10000
 
         # Initial velocity is given in GEODETIC coordinates. Same caveat
         # as COORDINATE_SYSTEM_POS above applies here.
@@ -188,13 +193,13 @@ if __name__ == "__main__":
         # horizontal in x and y and -280 m/s vertical velocity.
         position_init = np.array([lat, lon, alt], dtype=np.float64)
         velocity_init = np.array(
-            [0.0, 1000.0, 0.0], dtype=np.float64
+            [500.0, 0.0, 0.0], dtype=np.float64
         )  # vE, vN, vU in m/s
 
-        velocity_vec = StateEstimation.convert_velocity_geodetic_to_cartesian(
+        velocity_vec = RealState.convert_velocity_geodetic_to_cartesian(
             velocity_init, lat, lon
         )
-        position_vec = StateEstimation.convert_geodetic_to_cartesian(position_init)
+        position_vec = RealState.convert_geodetic_to_cartesian(position_init)
         # Scale factor for plotting, to convert from meters to
         # kilometers for position and from m/s to km/s for velocity, for
         # better visualization of the trajectory and velocity.
@@ -218,29 +223,24 @@ if __name__ == "__main__":
         "Velocity (vx, vy, vz): ",
         velocity_vec,
     )
-    logger = Logging(
-        n_steps, initial_conditions=initial_conditions
-    )  # Initialize the logger
 
+    logger = Logging(n_steps, initial_conditions=initial_conditions)
     # Initialize the rocket simulation with the given parameters and initial conditions
     rocket_simulation = Rocket(
-        initial_conditions=initial_conditions, params=params, logger=logger
-    )
-
-    # Initialize wind field with ERA5 data, parameters are not used
-    # since the data is loaded from files in the windfield class
-    wind_field = WindField(
-        start_time="2026-06-05T13:00:00", params=params, logger=logger
+        initial_conditions=initial_conditions,
+        params=params,
+        logger=logger,
+        wind_field=WindField(
+            start_time="2026-06-05T13:00:00", params=params, logger=logger
+        ),
     )
 
     # Example usage for default wind parameters - 15 m/s wind speed from
     # 270 degrees (north to south)
 
     _ = main(
-        t,
+        trange,
         rocket_simulation,
-        wind_field,
-        wind_field_conditions=wind_field_conditions,
         verbose=params.get("verbose"),
     )
 
@@ -253,7 +253,7 @@ if __name__ == "__main__":
         lim = 20
 
     plot_results(
-        logger.get_full_state(),
+        rocket_simulation.logger.get_full_state(),
         figsize=(24, 5),
         params=rocket_simulation.params,
         lim=lim,

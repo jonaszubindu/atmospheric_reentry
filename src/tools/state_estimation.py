@@ -3,7 +3,7 @@ import pymap3d as pm
 import numpy.typing as npt
 
 
-class StateEstimation:
+class RealState:
     """A class for estimating the state of the rocket during simulation and keeping track of the coordinate system used for position and velocity."""
 
     def __init__(self) -> None:
@@ -13,9 +13,8 @@ class StateEstimation:
             6, dtype=np.float64
         )  # [3 position 3 velocity]
 
-    def estimate_state(self, tcurrent: float) -> None:
-        """Simple state estimation function that could be expanded to
-        include sensor noise and filtering.
+    def update_state(self, tcurrent: float) -> None:
+        """Simple state updater.
 
         For now, just update the current time at step, but this could be
         modified to include noise and a filter.

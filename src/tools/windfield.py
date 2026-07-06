@@ -13,6 +13,7 @@ from .utils import (
     geopotential_to_altitude,
     _get_cartesian_wind,
 )
+from .state_estimation import RealState
 
 
 class WindField:
@@ -29,11 +30,10 @@ class WindField:
         wind data source.
     """
 
-    def update_wind(
+    def get_wind(
         self,
         t: float,
-        position_geodetic: npt.NDArray[np.float64],
-        wind_field_conditions: list = [0.0, 0.0],  # zero wind
+        state: npt.NDArray[np.float64],
     ) -> npt.NDArray[np.float64]:
         """Update the wind velocity vector based on the specified wind model.
 
@@ -43,10 +43,7 @@ class WindField:
         Parameters:
         t (float): The current time in seconds since the start of the
             simulation.
-        position_geodetic (npt.NDArray[np.float64]): The current position of the rocket in
-            geodetic coordinates (latitude, longitude, altitude).
-        wind_field_conditions (list, optional): Default wind conditions
-            [wind_direction, wind_speed] if using the default wind model.
+        state (npt.NDArray[np.float64]): The current state of the rocket, including position and velocity.
         Returns: npt.NDArray[np.float64]: The wind velocity vector in the simulation coordinate system.
             in case of default wind model, the wind velocity vector is in cartesian coordinates.
             in case of ERA5 wind model, the wind velocity vector is in ENU coordinates and needs to be transformed to cartesian coordinates using the rocket's current position.
@@ -82,17 +79,35 @@ class WindField:
             self.params["wind"] = "default"
 
     def __init__(
-        self, start_time: str, params: dict, logger: Logging | None = None
+        self,
+        start_time: str,
+        params: dict,
+        logger: Logging | None = None,
+        wind_field_conditions: list[
+            npt.NDArray[np.float64], npt.NDArray[np.float64]
+        ] = [0.0, 0.0],
     ) -> None:
-        """Initialize the WindField with the specified start time and parameters."""
+        """Initialize the WindField with the specified start time and parameters.
+        Parameters:
+        start_time (str): The start time of the simulation in a format
+            recognized by pandas.to_datetime.
+        params (dict): Dictionary containing simulation parameters, including
+            wind data source.
+        logger (Logging, optional): Logger instance for logging warnings and messages.
+        wind_field_conditions (list, optional): List containing wind direction and wind velocity for constant wind conditions.
+        Defaults to [0.0, 0.0].
+        """
         self.logger = logger
         self.params = params
         if self.params.get("wind") != "ERA5":
-            self.u = 0  # eastward wind
-            self.v = 0  # northward wind
-            self.z = 0  # alt
-
-            self.update_wind = self._update_wind_default
+            # For consistency, initialize u, v, z to None
+            self.u = None
+            self.v = None
+            self.z = None
+            self.start_time = start_time
+            self.wind_field_conditions = wind_field_conditions
+            self.get_wind = self._update_wind_default
+            self.wind_velv = np.zeros(3)  # Default wind velocity vector is zero
         else:
             # eastward wind
             u = xr.open_dataset(
@@ -129,7 +144,9 @@ class WindField:
             self.v = v
             self.z = z
             self.start_time = start_time
-            self.update_wind = self._update_wind_model
+            self.wind_field_conditions = None
+            self.get_wind = self._update_wind_model
+            self.wind_velv = np.zeros(3)  # Initialize wind velocity vector to zero
 
             # At init verify position is within the bounds of the wind data, otherwise warn and set wind to zero.
             self.zmax = self.z.z.max().values
@@ -159,7 +176,16 @@ class WindField:
 
     def _interpolate_wind(self, dataset, variable, teval, lat, lon, lvl_interp):
         """Interpolate the wind data for a specific variable (u or v) at a
-        specific time, latitude, longitude, and level."""
+        specific time, latitude, longitude, and level.
+        Parameters:
+        dataset (xarray.Dataset): The wind dataset (u or v).
+        variable (str): The variable name ('u' or 'v').
+        teval (pd.Timestamp): The time at which to interpolate the wind data.
+        lat (float): Latitude in degrees.
+        lon (float): Longitude in degrees.
+        lvl_interp (float): The hybrid level at which to interpolate the wind data.
+        Returns: float: The interpolated wind velocity component.
+        """
         if (
             teval < self.tmin
             or teval > self.tmax
@@ -180,10 +206,18 @@ class WindField:
                 time=teval, latitude=lat, longitude=lon, hybrid=lvl_interp
             )[variable].values
 
-    def _get_wind_at_altitude(self, t, lat, lon, alt):
+    def _compute_wind_at_altitude(self, t, lat, lon, alt):
         """Get the wind velocity vector at a specific altitude, latitude,
         and longitude at time t, with interpolation of the ERA5 wind
-        data."""
+        data.
+        Parameters:
+        t (float): The current time in seconds since the start of the
+            simulation.
+        lat (float): Latitude in degrees.
+        lon (float): Longitude in degrees.
+        alt (float): Altitude in meters.
+        Returns: numpy.ndarray: The wind velocity vector in the simulation coordinate system.
+        """
         # Get the correct parameters and locations at which to
         # interpolate the wind model
         teval = pd.to_datetime(self.start_time) + pd.to_timedelta(t, unit="s")
@@ -215,47 +249,46 @@ class WindField:
         wind_velv[np.isnan(wind_velv)] = 0
         # Assuming no vertical wind component for simplicity
         self.wind_velv = wind_velv
+        return wind_velv
 
     def _update_wind_model(
         self,
         t: float,
-        position_geodetic: npt.NDArray[np.float64],
-        wind_field_conditions: list[np.float64] = [0.0, 0.0],
+        state: npt.NDArray[np.float64],
     ):
         """Update the wind velocity vector based on the ERA5 wind model.
 
-        wind_field_conditions is not used for the model, but included for
-        compatibility with the default update function.
         Parameters:
         t (float): The current time in seconds since the start of the
             simulation.
-        position_geodetic (array): The current position of the rocket in
-            geodetic coordinates (latitude, longitude, altitude).
+        state (array): The current state of the rocket, including position and velocity.
 
         Returns: numpy.ndarray: The wind velocity vector in the simulation coordinate system.
         """
         # Convert x, y, z to latitude, longitude, altitude
+        position_geodetic = RealState.convert_cartesian_to_geodetic(state[:3])
         lat, lon, alt = position_geodetic
         # u is eastward - x direction, v is northward - y direction, matching
         # the simulation coordinate system.
-        return self._get_wind_at_altitude(t=t, lat=lat, lon=lon, alt=alt)
+        return self._compute_wind_at_altitude(t=t, lat=lat, lon=lon, alt=alt)
 
     def _update_wind_default(
         self,
         t: float,
-        position: npt.NDArray[np.float64],
-        wind_field_conditions: list[np.float64] = [
-            0.0,
-            0.0,
-        ],  # internal default wind condition
+        state: npt.NDArray[np.float64],
     ) -> npt.NDArray[np.float64]:
         """Update the wind velocity vector based on default wind conditions,
         ignoring position and time.
 
         Default wind conditions: 0 m/s wind speed from 0 degrees (north to
         south). Unused arguments are kept for compatibility.
+        Parameters:
+        t (float): The current time in seconds since the start of the
+            simulation. (Unused)
+        state (array): The current state of the rocket, including position and velocity. (Unused)
+        Returns: numpy.ndarray: The wind velocity vector in the simulation coordinate system.
         """
-        wind_dir, wind_vel = wind_field_conditions
+        wind_dir, wind_vel = self.wind_field_conditions
         wind_dir_cartesian = _get_cartesian_wind(wind_dir)
         wind_vel_x = wind_vel * np.sin(np.radians(wind_dir_cartesian))
         wind_vel_y = wind_vel * np.cos(np.radians(wind_dir_cartesian))
@@ -263,3 +296,4 @@ class WindField:
         wind_velv = np.array([wind_vel_x, wind_vel_y, 0])
 
         self.wind_velv = wind_velv
+        return wind_velv
