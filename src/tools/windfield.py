@@ -75,7 +75,11 @@ class WindField:
                 "bounds of the wind data. Wind velocity will be set to zero."
             )
             self._wind_failure(message_nowind)
-            self.update_wind = self._update_wind_default
+            self.get_wind = self._update_wind_default
+            self.wind_field_conditions = [
+                0.0,
+                0.0,
+            ]  # Set default wind conditions to zero
             self.params["wind"] = "default"
 
     def __init__(
@@ -160,12 +164,11 @@ class WindField:
             self.tmin = self.u.time.min().values
             self.tmax = self.u.time.max().values
 
-            if logger is not None:
-                self._verify_position_within_bounds(
-                    lat=logger.initial_conditions[0][0],
-                    lon=logger.initial_conditions[0][1],
-                    alt=logger.initial_conditions[0][2],
-                )
+            self._verify_position_within_bounds(
+                lat=logger.initial_conditions[0][0],
+                lon=logger.initial_conditions[0][1],
+                alt=logger.initial_conditions[0][2],
+            )
 
     def _wind_failure(self, message):
         warnings.warn(message, UserWarning)
