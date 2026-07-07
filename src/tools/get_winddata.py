@@ -25,8 +25,8 @@ stream = "oper"  # do not change
 # "2018-08-01/to/2018-01-31". For periods > 1 month see
 # https://confluence.ecmwf.int/x/l7GqB
 date = "2026-06-05"
-# type: Use "an" (analysis) unless you have a particular reason to use
-# "fc" (forecast).
+# request type: Use "an" (analysis) unless you have a particular reason to
+# use "fc" (forecast).
 tp = "an"
 # time: ERA5 data is hourly. Specify a single time as "00:00:00", or a
 # range as "00:00:00/01:00:00/02:00:00" or "00:00:00/to/23:00:00/by/1".

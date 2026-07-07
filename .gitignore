@@ -13,3 +13,6 @@ dist/
 
 # cfgrib index sidecar files generated next to .grib data
 *.grib.*.idx
+
+# Secrets — API keys etc. (openAIP key for the basemap)
+.env

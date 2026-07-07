@@ -1,4 +1,5 @@
 import warnings
+from typing import Callable
 from .utils import PhysicsFunctions
 from .windfield import WindField
 from .logging import Logging
@@ -9,39 +10,13 @@ from scipy.integrate import RK45
 
 
 class Rocket(PhysicsFunctions):
-    # Init functions for later ################################################
-
-    def calc_altitude_abv_sea_level(self, state: npt.NDArray[np.float64]) -> float:
-        """Calculate the altitude above sea level based on the current position of the rocket.
-        Parameters:
-        state (array): Current state of the rocket [position, velocity].
-        Returns:
-        float: Altitude above sea level in meters."""
-        raise NotImplementedError(
-            "This method should be implemented in a subclass or set during initialization."
-        )
-
-    def grav_acc(self, state: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-        """Calculate the gravitational acceleration based on the current position of the rocket.
-        Parameters:
-        state (array): Current state of the rocket [position, velocity].
-        Returns:
-        array: Gravitational acceleration vector in m/s^2."""
-        raise NotImplementedError(
-            "This method should be implemented in a subclass or set during initialization."
-        )
-
-    def get_air_density(self, state: npt.NDArray[np.float64]) -> float:
-        """Calculate the air density based on the current position of the rocket.
-        Parameters:
-        state (array): Current state of the rocket [position, velocity].
-        Returns:
-        float: Air density in kg/m^3."""
-        raise NotImplementedError(
-            "This method should be implemented in a subclass or set during initialization."
-        )
-
-    ################################################################
+    # These three are bound to concrete implementations in __init__ based on
+    # the simulation mode (strategy dispatch). Declared here as instance
+    # attributes so type checkers see them without the "cannot assign to a
+    # method" error a placeholder method definition would trigger.
+    calc_altitude_abv_sea_level: Callable[[npt.NDArray[np.float64]], np.float64]
+    grav_acc: Callable[[npt.NDArray[np.float64]], npt.NDArray[np.float64]]
+    get_air_density: Callable[[npt.NDArray[np.float64]], np.float64]
 
     """
     Simulate the rocket's flight using the equations of motion.
@@ -73,7 +48,7 @@ class Rocket(PhysicsFunctions):
 
     def __init__(
         self,
-        initial_conditions: list[npt.NDArray[np.float64], npt.NDArray[np.float64]],
+        initial_conditions: list[npt.NDArray[np.float64]],
         params: dict,
         logger: Logging,
         wind_field: WindField,
@@ -152,8 +127,8 @@ class Rocket(PhysicsFunctions):
         coefficient."""
         # get altitude from the current position of the rocket
         altitude = self.calc_altitude_abv_sea_level(state)
-        if altitude < self.params.get(
-            "parachute_opening_altitude"
+        if (
+            altitude < self.params["parachute_opening_altitude"]
         ):  # If altitude < parachute_opening_altitude, use parachute drag
             drag_coeff = self.params["drag_coefficient_parachute"]
             cross_sectional_area = self.params["cross_sectional_area_parachute"]
@@ -167,12 +142,14 @@ class Rocket(PhysicsFunctions):
             state, wind_velv, air_density, drag_coeff, cross_sectional_area
         )
 
-    def _update_environment(self, t) -> None:
+    def _update_environment(
+        self, t: float, state: npt.NDArray[np.float64]
+    ) -> npt.NDArray[np.float64]:
         """Update the wind field based on the current position of the rocket
         and the specified wind field conditions. No need to pass the state, since the state
         is already internally updated."""
         if self.params.get("wind") == "ERA5" or self.params.get("mode") == "realistic":
-            position_geodetic = self.get_position_geodetic()
+            position_geodetic = self.convert_cartesian_to_geodetic(state[:3])
             # Get current wind for present position
             wind_vel_geodetic = self.wind_field.get_wind(t, position_geodetic)
             lat, lon, _ = position_geodetic
@@ -180,13 +157,13 @@ class Rocket(PhysicsFunctions):
                 wind_vel_geodetic, lat, lon
             )
         else:  # simplified mode, or default wind.
-            position = self.get_position_cartesian()
+            position = state[:3]
             wind_velv = self.wind_field.get_wind(t, position)
         return wind_velv
 
     def equations_of_motion(
         self, t: float, state: npt.NDArray[np.float64]
-    ) -> list[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    ) -> npt.NDArray[np.float64]:
         """
         EOMs for the rocket, calculating the acceleration based on the
         current state and forces acting on the rocket.
@@ -199,7 +176,7 @@ class Rocket(PhysicsFunctions):
         # if wind should be sampled at every integration step, which can be taxing for
         # real wind data, uncomment the following line and comment out the next line,
         # which uses the last wind velocity.
-        wind_velv = self._update_environment(t)
+        wind_velv = self._update_environment(t, state)
         drag_force = self.get_drag_force(state, wind_velv)
 
         # Only evaluate wind at every global integration step
@@ -214,20 +191,18 @@ class Rocket(PhysicsFunctions):
 
     def update_state(
         self,
-        t: float,
     ) -> None:
         """
         Update the state of the rocket based on the equations of motion
         and wind conditions.
         """
-
         self.solver.step()
-        # wind_velv = self._update_environment(t)
 
         # Update position and velocity with wind effects
         self.set_position_cartesian(self.solver.y[:3])
         self.set_velocity_cartesian(self.solver.y[3:])
+        self.update_time(self.solver.t)  # Update the time of the state estimation
 
         # Log the state of the rocket at the new time step
-        self.logger.log_state(self, t)
+        self.logger.log_state(self, self.solver.t)
         self.logger.log_wind(self.wind_field.wind_velv)  # Log the wind velocity

@@ -8,20 +8,14 @@ class RealState:
 
     def __init__(self) -> None:
         """Initialize the state estimation with default values."""
-        self.tcurrent: float = 0  # always start at t zero for now
+        self.time: float = 0.0  # Current time in seconds
         self.state_cartesian: npt.NDArray[np.float64] = np.zeros(
             6, dtype=np.float64
         )  # [3 position 3 velocity]
 
-    def update_state(self, tcurrent: float) -> None:
-        """Simple state updater.
-
-        For now, just update the current time at step, but this could be
-        modified to include noise and a filter.
-        Parameters:
-        tcurrent (float): The current time step of the simulation.
-        """
-        self.tcurrent = tcurrent
+    def update_time(self, tcurrent: float) -> None:
+        """Update the time of the state estimation."""
+        self.time = tcurrent
 
     def get_position_cartesian(self) -> npt.NDArray[np.float64]:
         """Get the current position of the rocket."""
@@ -51,15 +45,15 @@ class RealState:
             self._cartesian_to_geodetic_velocity()
         )  # lazily update geodetic velocity from cartesian velocity
 
-    def _cartesian_to_geodetic(self) -> None:
+    def _cartesian_to_geodetic(self) -> npt.NDArray[np.float64]:
         """Convert cartesian coordinates (x, y, z) to geodetic coordinates
         (latitude, longitude, altitude)."""
         position = self.get_position_cartesian()
         return np.asarray(pm.ecef2geodetic(position[0], position[1], position[2]))
 
-    def _cartesian_to_geodetic_velocity(self) -> None:
+    def _cartesian_to_geodetic_velocity(self) -> npt.NDArray[np.float64]:
         """Convert cartesian velocity (vx, vy, vz) to geodetic velocity
-        (v_lat, v_lon, v_alt)."""
+        (v_east, v_north, v_up)."""
         position = self.get_position_geodetic()
         velocity = self.get_velocity_cartesian()
         lat, lon, _ = position
@@ -69,7 +63,7 @@ class RealState:
     def convert_velocity_geodetic_to_cartesian(
         velocity_geodetic: npt.NDArray[np.float64], lat: float, lon: float
     ) -> npt.NDArray[np.float64]:
-        """Convert geodetic velocity (v_lat, v_lon, v_alt) to cartesian
+        """Convert geodetic velocity (v_east, v_north, v_up) to cartesian
         velocity (vx, vy, vz). Assumes velocity is in ENU (East, North, Up)
         coordinates for geodetic velocity and we want to convert it to ECEF
         coordinates for cartesian velocity."""
@@ -98,7 +92,7 @@ class RealState:
         velocity_cartesian: npt.NDArray[np.float64], lat: float, lon: float
     ) -> npt.NDArray[np.float64]:
         """Convert cartesian velocity (vx, vy, vz) to geodetic velocity
-        (v_lat, v_lon, v_alt). Assumes velocity is in ECEF coordinates for
+        (v_east, v_north, v_up). Assumes velocity is in ECEF coordinates for
         cartesian velocity and we want to convert it to ENU (East, North, Up)
         coordinates for geodetic velocity."""
         return np.asarray(

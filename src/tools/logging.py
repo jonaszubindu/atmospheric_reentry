@@ -1,7 +1,14 @@
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 
 from .utils import altitude_to_geopotential
+
+if TYPE_CHECKING:
+    # Import only for type checking to avoid a circular import at runtime
+    # (simulate_rocket imports Logging).
+    from .simulate_rocket import Rocket
 
 
 # potentially upgrade type hints to numpy.typing.NDArray[np.float64] for better clarity and type checking
@@ -31,9 +38,9 @@ class Logging:
         self.wind_velocity = np.full((n_steps, 3), np.nan)
 
         # Variable-length information
-        self.warnings = [[] for _ in range(n_steps)]
+        self.warnings: list[list[str]] = [[] for _ in range(n_steps)]
 
-    def log_state(self, rocket: object, t: float) -> None:
+    def log_state(self, rocket: "Rocket", t: float) -> None:
         i = self.i
 
         self.time[i] = t

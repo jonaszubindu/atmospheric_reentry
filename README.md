@@ -34,7 +34,14 @@ joblib) are resolved automatically from `pyproject.toml`. Verify the
 install with:
 
 ```bash
-python -c "import atmospheric_reentry; print('install OK')"
+python -c "import tools; print('install OK')"
+```
+
+Optional extras:
+
+```bash
+pip install -e '.[basemap]'   # contextily + pyproj, for the ICAO ground-track map
+pip install -e '.[dev]'       # pytest, mypy, ruff
 ```
 
 ---
@@ -80,6 +87,7 @@ Behaviour is driven by a `params` dictionary:
 | `drag_coefficient_parachute`     | float                               | drag coefficient below 10 km (parachute deployed) |
 | `cross_sectional_area`           | float (m²)                          | reference area above 10 km |
 | `cross_sectional_area_parachute` | float (m²)                          | reference area below 10 km |
+| `basemap`                        | `True` \| `False`                   | draw an ICAO/aeronautical map behind the ground-track panel (realistic mode; see *Ground-track basemap*) |
 | `verbose`                        | `True` \| `False`                   | print state every 100 steps |
 
 **Modes in detail**
@@ -214,6 +222,46 @@ generate data for a different date or region:
 The horizontal area and date are fixed by the download request in
 `get_winddata.py`; a trajectory that leaves the downloaded area or altitude
 range gets zero wind (with a logged warning) rather than an error.
+
+---
+
+## Ground-track basemap (ICAO / aeronautical map)
+
+In **realistic** mode you can draw a map behind the ground-track panel to see
+where the trajectory would fly. Enable it with `params["basemap"] = True`
+(it is off by default so headless/offline runs are unaffected).
+
+The track is reprojected to Web Mercator and drawn undistorted on a square
+panel with degree tick labels; the zoom level is chosen from the track extent
+and clamped so a near-vertical drop does not request absurdly deep tiles.
+
+**Requirements:**
+
+1. Install the optional extra: `pip install -e '.[basemap]'` (contextily +
+   pyproj).
+2. **Base map** (terrain, roads, place names) needs **no key** — it comes
+   from OpenStreetMap.
+3. **ICAO airspaces / navaids** come from the [openAIP](https://www.openaip.net)
+   overlay, which needs a free API key. Provide it either as an environment
+   variable:
+
+   ```bash
+   export OPENAIP_API_KEY=your-key-here
+   ```
+
+   or in a **`.env` file** at the repo root (or any parent of the working
+   directory):
+
+   ```
+   OPENAIP_API_KEY=your-key-here
+   ```
+
+Without a key you still get the base map and track, plus a one-line warning
+that airspaces are not drawn. Tiles are fetched over the network at plot
+time, so this needs internet access.
+
+> **Security:** `.env` is listed in `.gitignore` — keep your key out of
+> version control. Never commit it.
 
 ---
 

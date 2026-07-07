@@ -23,9 +23,20 @@ dependencies = [
     "joblib"
 ]
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "mypy", "ruff"]
+# Aeronautical basemap behind the ground-track plot (plot_results basemap=True)
+basemap = ["contextily", "pyproj"]
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.mypy]
+# Check against the project's minimum Python so PEP 604 unions (X | None)
+# are accepted rather than flagged as syntax errors.
+python_version = "3.10"
+ignore_missing_imports = true
+# Vendored ECMWF utility (imported verbatim); not our code to type-check.
+exclude = "compute_geopotential_on_ml\\.py"

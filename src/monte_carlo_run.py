@@ -117,4 +117,4 @@ out = Parallel(n_jobs=-1, verbose=10)(
 
 
 # Plot the trajectories of all runs in the same figure
-plot_results(out, figsize=(24, 5), lw=0.1, params=params, lim=None, scale_fac=scale_fac)
+plot_results(out, lw=0.1, params=params, lim=None, scale_fac=scale_fac)

@@ -18,25 +18,25 @@ def verbose_message(
         or rocket_simulation.params.get("wind") == "ERA5"
     ):
         lat, lon, alt = rocket_simulation.get_position_geodetic()
-        v_lat, v_lon, v_alt = rocket_simulation.get_velocity_geodetic()
+        v_east, v_north, v_up = rocket_simulation.get_velocity_geodetic()
         state_derivative = rocket_simulation.equations_of_motion(
-            rocket_simulation.tcurrent, rocket_simulation.state_cartesian
+            rocket_simulation.time, rocket_simulation.state_cartesian
         )
-        acc_geodetic = RealState.convert_velocity_cartesian_to_geodetic(
+        acc_east, acc_north, acc_up = RealState.convert_velocity_cartesian_to_geodetic(
             state_derivative[3:], lat, lon
         )
-        wind_vel_geodetic = wind_field.wind_velv
+        wind_vel_east, wind_vel_north, wind_vel_up = wind_field.wind_velv
 
         print(
             f"Time: {time0:.2f} s, "
             f"Position (lat, lon, alt): "
-            f"({lat:.2f}°, {lon:.2f}°, {alt:.2f} m), "
-            f"Acceleration (a_lat, a_lon, a_alt): ",
-            f"({acc_geodetic[0]:.2f}, {acc_geodetic[1]:.2f}, {acc_geodetic[2]:.2f}) m/s², "
-            f"Velocity (v_lat, v_lon, v_alt): "
-            f"({v_lat:.2f}, {v_lon:.2f}, {v_alt:.2f}) m/s, "
-            f"Wind Velocity (v_wind_lat, v_wind_lon, v_wind_alt): "
-            f"({wind_vel_geodetic[0]:.2f}, {wind_vel_geodetic[1]:.2f}, {wind_vel_geodetic[2]:.2f}) m/s",
+            f"({lat:.3f}°, {lon:.3f}°, {alt:.3f} m), "
+            f"Acceleration (a_east, a_north, a_up): ",
+            f"({acc_east:.2f}, {acc_north:.2f}, {acc_up:.2f}) m/s², "
+            f"Velocity (v_east, v_north, v_up): "
+            f"({v_east:.2f}, {v_north:.2f}, {v_up:.2f}) m/s, "
+            f"Wind Velocity (v_wind_east, v_wind_north, v_wind_up): "
+            f"({wind_vel_east:.2f}, {wind_vel_north:.2f}, {wind_vel_up:.2f}) m/s",
         )
     else:
         position = rocket_simulation.get_position_cartesian()
@@ -53,22 +53,25 @@ def verbose_message(
 
 
 def main(
-    trange: np.ndarray,
+    n_steps: int,
     rocket_simulation: Rocket,
     verbose: bool = False,
 ) -> pandas.DataFrame:
     """Run the rocket simulation with the given wind conditions."""
 
-    for ii in range(len(trange)):
-        tcurrent = trange[ii]
+    for ii in range(n_steps):
         # Update state and conditions
-        rocket_simulation.update_state(tcurrent)
+        rocket_simulation.update_state()
         altitude = rocket_simulation.calc_altitude_abv_sea_level(
             rocket_simulation.get_position_cartesian()
         )
-        print(altitude)
-        # if verbose and ii % 100 == 0:  # Print every 100 steps to reduce output
-        verbose_message(rocket_simulation, rocket_simulation.wind_field, tcurrent)
+
+        if verbose and ii % 100 == 0:  # Print every 100 steps to reduce output
+            verbose_message(
+                rocket_simulation,
+                rocket_simulation.wind_field,
+                rocket_simulation.solver.t,
+            )
 
         if altitude <= 0.0:
             # The rocket has hit the ground, stop the simulation
@@ -84,7 +87,7 @@ def main(
     return rocket_simulation.logger.get_full_state()
 
 
-def menu() -> tuple[str, str]:
+def menu() -> tuple[str, str, bool, bool]:
     """Display a menu for the user to select simulation parameters."""
     print("Welcome to the Rocket Simulation!")
     print("Please select the simulation mode:")
@@ -113,29 +116,46 @@ def menu() -> tuple[str, str]:
         print("Invalid choice. Defaulting to 'ERA5' wind data.")
         wind_data = "ERA5"
 
-    return mode, wind_data
+    if (
+        mode == "realistic" or wind_data == "ERA5"
+    ):  # required for map drawing, must be aware of coordinate systems
+        print("\nPlease select whether to draw a basemap:")
+        basemap_choice = input("Enter your choice (y/n): ")
+        if basemap_choice.lower() == "y":
+            basemap = True
+        else:
+            basemap = False
+
+    print("\nPlease select whether to enable verbose mode:")
+    verbose_choice = input("Enter your choice (y/n): ")
+    if verbose_choice.lower() == "y":
+        verbose = True
+    else:
+        verbose = False
+
+    return mode, wind_data, basemap, verbose
 
 
 if __name__ == "__main__":
     # Get user input for simulation parameters
-    mode, wind_data = menu()
+    mode, wind_data, basemap, verbose = menu()
 
     params = {
         # mass of the rocket in kg, assumed to be a pointmass
-        "mass": 100,
+        "mass": 10,
         # drag coefficient rocket (dimensionless)
-        "drag_coefficient": 1.4,  # default 1.4,
+        "drag_coefficient": 0.25,  # default 1.4,
         # drag coefficient with parachute deployed (dimensionless)
         "drag_coefficient_parachute": 2.0,  # default 2.0,
         # cross-sectional area in m^2
-        "cross_sectional_area": 1.14,  # default 1.14,
+        "cross_sectional_area": 0.30,  # default 1.14,
         # cross-sectional area of parachute in m^2
-        "cross_sectional_area_parachute": 18,  # default 18,
+        "cross_sectional_area_parachute": 1,  # default 18,
         # which wind data to use; use "default" for default behaviour,
         # use "ERA5" for realistic wind data.
         "wind": wind_data,
         # Set altitude at which the parachute should open
-        "parachute_opening_altitude": 1000,
+        "parachute_opening_altitude": 150,
         # maximum simulation time in seconds
         "tmax": 3000,
         # maximum stepsize
@@ -148,22 +168,23 @@ if __name__ == "__main__":
         # parameters, or use 'simplified' assumptions for testing and
         # debugging, e.g. no drag, constant gravity, etc.
         "mode": mode,
+        # draw an ICAO / aeronautical basemap behind the ground-track panel
+        # (realistic mode only). Fetches map tiles over the network; airspaces
+        # need an openAIP API key (see OPENAIP_API_KEY below).
+        "basemap": basemap,
         # print the state of the rocket at each time step for
         # debugging and analysis
-        "verbose": True,
+        "verbose": verbose,
     }
 
     # Initialize parameters and initial conditions.
-    # Time array from 0 to 3000 seconds with 10000 time steps was so far
-    # stable in all simulation runs. At 3000 steps, oscillations show up
-    # in the velocity and altitude.
-    trange = np.linspace(0, 3000, n_steps := 10000)
     # Default wind conditions: 270 degrees (north to south), 15 m/s wind
     # speed, not used if using ERA5 wind data. Degrees are given as
     # cartesian degrees, meaning 0 degrees is eastward, 90 degrees is
     # northward, 180 degrees is westward and 270 degrees is southward,
     # matching the coordinate system of the simulation.
-    wind_field_conditions = [0.0, 0.0]  # [270.0, 15.0]
+    n_steps = 10000
+    wind_field_conditions = [90.0, 30.0]  # [270.0, 15.0]
 
     if params["wind"] == "default" and params["mode"] == "simplified":
         # This for now also automatically assumes a flat earth.
@@ -172,8 +193,7 @@ if __name__ == "__main__":
         position_vec = np.array([0, 0, 2000], dtype=np.float64)
         # Initial velocity (vx, vy, vz) in m/s, rocket dropped at 70 m/s
         # horizontal in x and y and -280 m/s vertical velocity.
-        velocity_vec = np.array([500.0, 0.0, 0.0], dtype=np.float64)
-        wind_field_conditions = wind_field_conditions
+        velocity_vec = np.array([30.0, 0.0, 0.0], dtype=np.float64)
 
     if params["mode"] == "realistic" or params["wind"] == "ERA5":
         # Initial coordinates: dummy values for a mid-latitude coastal
@@ -182,10 +202,10 @@ if __name__ == "__main__":
         # lat = 38.5
         # alt = 60000
 
-        # For testing
-        lat = 46.9  # in deg, positive north, negative south
-        lon = 7.5  # in deg, positive east, negative west
-        alt = 10000
+        # Dübendorf airfield (LSMD), Switzerland — aerodrome reference point.
+        lat = 47.3986  # in deg, positive north, negative south
+        lon = 8.6486  # in deg, positive east, negative west
+        alt = 2000  # entry/drop altitude in m (airfield elevation is ~440 m)
 
         # Initial velocity is given in GEODETIC coordinates. Same caveat
         # as COORDINATE_SYSTEM_POS above applies here.
@@ -193,7 +213,7 @@ if __name__ == "__main__":
         # horizontal in x and y and -280 m/s vertical velocity.
         position_init = np.array([lat, lon, alt], dtype=np.float64)
         velocity_init = np.array(
-            [500.0, 0.0, 0.0], dtype=np.float64
+            [-100.0, 0.0, 0.0], dtype=np.float64
         )  # vE, vN, vU in m/s
 
         velocity_vec = RealState.convert_velocity_geodetic_to_cartesian(
@@ -231,7 +251,10 @@ if __name__ == "__main__":
         params=params,
         logger=logger,
         wind_field=WindField(
-            start_time="2026-06-05T13:00:00", params=params, logger=logger
+            start_time="2026-06-05T13:00:00",
+            params=params,
+            logger=logger,
+            wind_field_conditions=wind_field_conditions,
         ),
     )
 
@@ -239,7 +262,7 @@ if __name__ == "__main__":
     # 270 degrees (north to south)
 
     _ = main(
-        trange,
+        n_steps,
         rocket_simulation,
         verbose=params.get("verbose"),
     )
@@ -254,7 +277,6 @@ if __name__ == "__main__":
 
     plot_results(
         rocket_simulation.logger.get_full_state(),
-        figsize=(24, 5),
         params=rocket_simulation.params,
         lim=lim,
         scale_fac=scale_fac,
