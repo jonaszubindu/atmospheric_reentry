@@ -6,7 +6,7 @@ import warnings
 
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.ticker import FuncFormatter, MaxNLocator
+from matplotlib.ticker import AutoMinorLocator, FuncFormatter, MaxNLocator
 import pandas as pd
 from typing import Optional
 import numpy.typing as npt
@@ -346,12 +346,16 @@ def plot_results(
         # Format ticks as degrees via a formatter (rather than overwriting
         # tick labels on an auto locator, which mislabels on redraw).
         # Precision adapts to the span so a tightly-zoomed track does not show
-        # the same rounded value on every tick.
+        # the same rounded value on every tick. This is for the default non-ICAO basemap case; the ICAO basemap uses a different formatter, see further below.
         deg_dec = _deg_decimals(2.0 * axrange)
         ax2.xaxis.set_major_locator(MaxNLocator(5))
         ax2.yaxis.set_major_locator(MaxNLocator(5))
         ax2.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.{deg_dec}f}°"))
         ax2.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.{deg_dec}f}°"))
+        ax2.xaxis.set_minor_locator(AutoMinorLocator(5))
+        ax2.yaxis.set_minor_locator(AutoMinorLocator(5))
+        ax2.grid(True, which="major", color="0.6", lw=0.5, alpha=0.6)
+        ax2.grid(True, which="minor", color="0.8", lw=0.25, alpha=0.4)
         for label in ax2.get_xticklabels():
             label.set_rotation(45)
 
@@ -414,6 +418,64 @@ _ICAO_OVERLAY_URL = (
 )
 
 
+def _deg_decimals(span_deg: float) -> int:
+    """Number of decimal places so that ~5 ticks across `span_deg` degrees
+    render as distinct labels. Fixed precision (e.g. .2f) collapses to
+    repeated labels when the track is small; this scales with the span."""
+    if span_deg <= 0 or not np.isfinite(span_deg):
+        return 3
+    spacing = span_deg / 5.0
+    decimals = int(np.ceil(-np.log10(spacing))) + 1
+    return int(np.clip(decimals, 2, 7))
+
+
+# Standard aeronautical graticule steps, in degrees, descending: 1°, 30', 20',
+# 10', 5', 2', 1', 30", 15", 10", 5", 1".
+_GRATICULE_STEPS = np.array([
+    1.0, 30 / 60, 20 / 60, 10 / 60, 5 / 60, 2 / 60, 1 / 60,
+    30 / 3600, 15 / 3600, 10 / 3600, 5 / 3600, 1 / 3600,
+])
+
+
+def _graticule(lo: float, hi: float) -> tuple[np.ndarray, float]:
+    """Return the standard-graticule tick values (in degrees) spanning
+    [lo, hi], plus the chosen step. Picks the largest standard step giving
+    at least ~3 lines; falls back to the finest step for very small spans
+    (so it never raises on an empty selection)."""
+    span = hi - lo
+    if span <= 0 or not np.isfinite(span):
+        return np.array([lo]), float(_GRATICULE_STEPS[-1])
+    fits = _GRATICULE_STEPS[_GRATICULE_STEPS <= span / 3.0]
+    step = float(fits[0]) if fits.size else float(_GRATICULE_STEPS[-1])
+    # First graticule line at or above lo, aligned to the step lattice.
+    first_k = int(np.ceil(lo / step))
+    last_k = int(np.floor(hi / step))
+    ticks = np.arange(first_k, last_k + 1) * step
+    return ticks, step
+
+
+def _format_dms(deg: float, with_seconds: bool) -> str:
+    """Format a signed decimal degree as D°M' (or D°M'S'' when the graticule
+    step is finer than one arc-minute). Rounds cleanly so lattice values do
+    not render as e.g. 59.999''."""
+    sign = "-" if deg < 0 else ""
+    a = abs(deg)
+    d = int(a)
+    minutes_f = (a - d) * 60.0
+    if not with_seconds:
+        m = int(round(minutes_f))
+        if m == 60:
+            d, m = d + 1, 0
+        return f"{sign}{d}°{m:02d}′"
+    m = int(minutes_f)
+    s = int(round((minutes_f - m) * 60.0))
+    if s == 60:
+        s, m = 0, m + 1
+    if m == 60:
+        m, d = 0, d + 1
+    return f"{sign}{d}°{m:02d}′{s:02d}″"
+
+
 def _load_openaip_key() -> Optional[str]:
     """Return the openAIP API key from the environment, or from a .env file in
     the working directory or up to three parent directories (matching the
@@ -430,27 +492,6 @@ def _load_openaip_key() -> Optional[str]:
                 if line.startswith("OPENAIP_API_KEY="):
                     return line.split("=", 1)[1].strip().strip("'\"")
     return None
-
-
-def _deg_decimals(span_deg: float) -> int:
-    """Number of decimal places so that ~5 ticks across `span_deg` degrees
-    render as distinct labels. Fixed precision (e.g. .2f) collapses to
-    repeated labels when the track is small; this scales with the span."""
-    if span_deg <= 0 or not np.isfinite(span_deg):
-        return 3
-    spacing = span_deg / 5.0
-    decimals = int(np.ceil(-np.log10(spacing))) + 1
-    return int(np.clip(decimals, 2, 7))
-
-
-def _basemap_zoom(
-    lon: np.ndarray, lat: np.ndarray, zmin: int = 4, zmax: int = 12
-) -> int:
-    """Pick a web-map zoom level from the track's degree extent, clamped so a
-    near-vertical drop (tiny extent) does not request absurdly deep tiles."""
-    span = float(max(lon.max() - lon.min(), lat.max() - lat.min(), 1e-4))
-    zoom = int(np.floor(np.log2(360.0 / span)))
-    return int(np.clip(zoom, zmin, zmax))
 
 
 def add_icao_basemap(
@@ -500,7 +541,6 @@ def add_icao_basemap(
     xmin, xmax = cx_c - half, cx_c + half
     ymin, ymax = cy_c - half, cy_c + half
 
-    zoom = _basemap_zoom(lon, lat)
     api_key = _load_openaip_key()
     if api_key is None:
         warnings.warn(
@@ -518,7 +558,7 @@ def add_icao_basemap(
             ymin,
             xmax,
             ymax,
-            zoom=zoom,
+            zoom="auto",
             source=cx.providers.OpenStreetMap.Mapnik,
         )
         overlay = None
@@ -528,7 +568,7 @@ def add_icao_basemap(
                 ymin,
                 xmax,
                 ymax,
-                zoom=zoom,
+                zoom="auto",
                 source=_ICAO_OVERLAY_URL.replace("OPENAIP_KEY", api_key),
             )
     except Exception as exc:  # offline + uncached, or tile server error
@@ -553,23 +593,42 @@ def add_icao_basemap(
     ax.set_aspect("equal")
     ax.set_box_aspect(1)
 
-    # Sensical ticks: label Web-Mercator metres back as lon/lat degrees
-    # (in Mercator, lon depends only on x and lat only on y). Precision adapts
-    # to the view span so a tightly-zoomed track does not show repeated labels.
-    lon_span = abs(to_deg.transform(xmax, 0.0)[0] - to_deg.transform(xmin, 0.0)[0])
-    lat_span = abs(to_deg.transform(0.0, ymax)[1] - to_deg.transform(0.0, ymin)[1])
-    xdec = _deg_decimals(lon_span)
-    ydec = _deg_decimals(lat_span)
-    ax.xaxis.set_major_locator(MaxNLocator(5))
-    ax.yaxis.set_major_locator(MaxNLocator(5))
-    ax.xaxis.set_major_formatter(
-        FuncFormatter(lambda x, _: f"{to_deg.transform(x, 0.0)[0]:.{xdec}f}°")
+    # Standard ICAO graticule ticks. Compute the tick lines in DEGREES on the
+    # standard lattice, then place them at their Mercator positions (the axis
+    # is in metres). Labels come straight from the exact degree values, so
+    # there is no Mercator->degree round-off in the text.
+    lon_lo = to_deg.transform(xmin, 0.0)[0]
+    lon_hi = to_deg.transform(xmax, 0.0)[0]
+    lat_lo = to_deg.transform(0.0, ymin)[1]
+    lat_hi = to_deg.transform(0.0, ymax)[1]
+
+    lon_ticks, lon_step = _graticule(lon_lo, lon_hi)
+    lat_ticks, lat_step = _graticule(lat_lo, lat_hi)
+
+    ax.set_xticks([to_merc.transform(d, 0.0)[0] for d in lon_ticks])
+    ax.set_yticks([to_merc.transform(0.0, d)[1] for d in lat_ticks])
+    ax.set_xticklabels(
+        [_format_dms(d, lon_step < 1 / 60) for d in lon_ticks], rotation=45
     )
-    ax.yaxis.set_major_formatter(
-        FuncFormatter(lambda y, _: f"{to_deg.transform(0.0, y)[1]:.{ydec}f}°")
+    ax.set_yticklabels([_format_dms(d, lat_step < 1 / 60) for d in lat_ticks])
+
+    # Fine graticule: minor lines at 1/5 of the major step.
+    lon_minor = np.arange(
+        np.ceil(lon_lo / (lon_step / 5)), np.floor(lon_hi / (lon_step / 5)) + 1
+    ) * (lon_step / 5)
+    lat_minor = np.arange(
+        np.ceil(lat_lo / (lat_step / 5)), np.floor(lat_hi / (lat_step / 5)) + 1
+    ) * (lat_step / 5)
+    ax.set_xticks(
+        [to_merc.transform(d, 0.0)[0] for d in lon_minor], minor=True
     )
-    for label in ax.get_xticklabels():
-        label.set_rotation(45)
+    ax.set_yticks(
+        [to_merc.transform(0.0, d)[1] for d in lat_minor], minor=True
+    )
+
+    # Draw the grid over the map tiles but under the track (zorder 2-3).
+    ax.grid(True, which="major", color="0.25", lw=0.5, alpha=0.7, zorder=1.5)
+    ax.grid(True, which="minor", color="0.45", lw=0.25, alpha=0.4, zorder=1.4)
 
     ax.set_title("Ground track over aeronautical map")
     ax.set_xlabel("Longitude")

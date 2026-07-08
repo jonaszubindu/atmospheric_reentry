@@ -197,7 +197,7 @@ if __name__ == "__main__":
 
     if params["mode"] == "realistic" or params["wind"] == "ERA5":
         # Initial coordinates: dummy values for a mid-latitude coastal
-        # launch site.
+        # launch site where the wind data is already available.
         # lon = 360 - 75
         # lat = 38.5
         # alt = 60000
@@ -205,7 +205,12 @@ if __name__ == "__main__":
         # Dübendorf airfield (LSMD), Switzerland — aerodrome reference point.
         lat = 47.3986  # in deg, positive north, negative south
         lon = 8.6486  # in deg, positive east, negative west
-        alt = 2000  # entry/drop altitude in m (airfield elevation is ~440 m)
+        alt = 200000  # entry/drop altitude in m (airfield elevation is ~440 m)
+
+        # Any airfield (LSMD), Switzerland — aerodrome reference point.
+        # lat = -17.3986  # in deg, positive north, negative south
+        # lon = 38.6486  # in deg, positive east, negative west
+        # alt = 200000  # entry/drop altitude in m (airfield elevation is ~440 m)
 
         # Initial velocity is given in GEODETIC coordinates. Same caveat
         # as COORDINATE_SYSTEM_POS above applies here.
