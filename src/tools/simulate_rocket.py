@@ -111,6 +111,11 @@ class Rocket(PhysicsFunctions):
             self.grav_acc = self._simple_gravity
             self.get_air_density = self._simple_airdensity
 
+        # Wind is held constant across the RK stages of a single step
+        # (refreshed once per committed step in update_state). Seed it here so
+        # it exists for the RHS call RK45 makes during construction.
+        self._wind_cartesian = self._update_environment(0.0, self.state_cartesian)
+
         # Initialize the ODE solver for the rocket's equations of motion
         self.solver = RK45(
             self.equations_of_motion,
@@ -152,9 +157,8 @@ class Rocket(PhysicsFunctions):
             position_geodetic = self.convert_cartesian_to_geodetic(state[:3])
             # Get current wind for present position
             wind_vel_geodetic = self.wind_field.get_wind(t, position_geodetic)
-            lat, lon, _ = position_geodetic
             wind_velv = self.convert_velocity_geodetic_to_cartesian(
-                wind_vel_geodetic, lat, lon
+                wind_vel_geodetic, position_geodetic[0], position_geodetic[1]
             )
         else:  # simplified mode, or default wind.
             position = state[:3]
@@ -171,16 +175,13 @@ class Rocket(PhysicsFunctions):
         # Get current position and velocity from state
         velocity = state[3:]
 
-        # Calculate drag force - coordinate system assertion happens
-        # already in subfunctions.
-        # if wind should be sampled at every integration step, which can be taxing for
-        # real wind data, uncomment the following line and comment out the next line,
-        # which uses the last wind velocity.
-        wind_velv = self._update_environment(t, state)
-        drag_force = self.get_drag_force(state, wind_velv)
+        # Wind is frozen for the whole step (refreshed once per committed step
+        # in update_state) and reused across the RK stages, rather than
+        # re-interpolating the wind field at every RHS evaluation. Over one
+        # <= max_step interval the wind changes negligibly, so this is a
+        # standard, accurate approximation that avoids ~6x redundant lookups.
+        drag_force = self.get_drag_force(state, self._wind_cartesian)
 
-        # Only evaluate wind at every global integration step
-        # drag_force = self.get_drag_force(state, self.wind_field.wind_velv)
         g_acc = self.grav_acc(state)
 
         # Calculate acceleration: F = ma => a = F/m, drag force is negative
@@ -196,6 +197,11 @@ class Rocket(PhysicsFunctions):
         Update the state of the rocket based on the equations of motion
         and wind conditions.
         """
+        # Refresh the wind once, at the current committed state/time, and hold
+        # it constant for all RK stages of the step taken below.
+        self._wind_cartesian = self._update_environment(
+            self.solver.t, self.state_cartesian
+        )
         self.solver.step()
 
         # Update position and velocity with wind effects

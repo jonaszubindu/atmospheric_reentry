@@ -14,7 +14,6 @@ from .utils import (
     geopotential_to_altitude,
     _get_cartesian_wind,
 )
-from .state_estimation import RealState
 
 
 class WindField:
@@ -94,6 +93,9 @@ class WindField:
         self.wind_field_conditions = (
             [0.0, 0.0] if wind_field_conditions is None else wind_field_conditions
         )
+        # flip wind direction -> wind is defined as the direction from which it comes,
+        # but the simulation expects the direction to which it is going.
+        self.wind_field_conditions[0] = (self.wind_field_conditions[0] + 180) % 360
         if self.params.get("wind") != "ERA5":
             # For consistency, initialize u, v, z to None
             self.u = None
@@ -161,12 +163,12 @@ class WindField:
             # logger; it is therefore required in this branch.
             if logger is None:
                 raise ValueError(
-                    "A logger with initial_conditions is required for ERA5 wind."
+                    "A logger with initial_conditions_geodetic is required for ERA5 wind."
                 )
             self._verify_position_within_bounds(
-                lat=logger.initial_conditions[0][0],
-                lon=logger.initial_conditions[0][1],
-                alt=logger.initial_conditions[0][2],
+                lat=logger.initial_conditions_geodetic[0][0],
+                lon=logger.initial_conditions_geodetic[0][1],
+                alt=logger.initial_conditions_geodetic[0][2],
             )
 
     def _wind_failure(self, message: str) -> npt.NDArray[np.float64]:
@@ -260,7 +262,7 @@ class WindField:
         u_interp = self._interpolate_wind(self.u, "u", teval, lat, lon, lvl_interp)
         v_interp = self._interpolate_wind(self.v, "v", teval, lat, lon, lvl_interp)
 
-        wind_velv = np.array([u_interp, v_interp, 0])
+        wind_velv = np.array([u_interp, v_interp, 0.0])
         # Replace NaN values with 0, which can occur if the rocket goes
         # above the maximum altitude of the wind data or if the
         # interpolation fails for some reason. This is a simple way to
@@ -274,19 +276,18 @@ class WindField:
     def _update_wind_model(
         self,
         t: float,  # seconds since start of simulation
-        state: npt.NDArray[np.float64],
+        position_geodetic: npt.NDArray[np.float64],
     ) -> npt.NDArray[np.float64]:
         """Update the wind velocity vector based on the ERA5 wind model.
 
         Parameters:
         t (float): The current time in seconds since the start of the
             simulation.
-        state (array): The current state of the rocket, including position and velocity.
+        position_geodetic (array): The current position of the rocket in geodetic coordinates (latitude, longitude, altitude).
 
         Returns: numpy.ndarray: The wind velocity vector in the simulation coordinate system.
         """
         # Convert x, y, z to latitude, longitude, altitude
-        position_geodetic = RealState.convert_cartesian_to_geodetic(state[:3])
         lat, lon, alt = position_geodetic
         # u is eastward - x direction, v is northward - y direction, matching
         # the simulation coordinate system.
@@ -295,7 +296,7 @@ class WindField:
     def _update_wind_default(
         self,
         t: float,
-        state: npt.NDArray[np.float64],
+        position: npt.NDArray[np.float64],
     ) -> npt.NDArray[np.float64]:
         """Update the wind velocity vector based on default wind conditions,
         ignoring position and time.
@@ -316,7 +317,7 @@ class WindField:
         wind_vel_x = wind_vel * np.cos(np.radians(wind_dir_cartesian))
         wind_vel_y = wind_vel * np.sin(np.radians(wind_dir_cartesian))
         # Assuming no vertical wind component for simplicity
-        wind_velv = np.array([wind_vel_x, wind_vel_y, 0])
+        wind_velv = np.array([wind_vel_x, wind_vel_y, 0.0])
 
         self.wind_velv = wind_velv
         return wind_velv

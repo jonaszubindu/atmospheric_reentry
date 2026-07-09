@@ -142,20 +142,20 @@ if __name__ == "__main__":
 
     params = {
         # mass of the rocket in kg, assumed to be a pointmass
-        "mass": 10,
+        "mass": 700,  # default 700,
         # drag coefficient rocket (dimensionless)
-        "drag_coefficient": 0.25,  # default 1.4,
+        "drag_coefficient": 1.4,  # default 1.4,
         # drag coefficient with parachute deployed (dimensionless)
         "drag_coefficient_parachute": 2.0,  # default 2.0,
         # cross-sectional area in m^2
-        "cross_sectional_area": 0.30,  # default 1.14,
+        "cross_sectional_area": 1.14,  # default 1.14,
         # cross-sectional area of parachute in m^2
-        "cross_sectional_area_parachute": 1,  # default 18,
+        "cross_sectional_area_parachute": 18,  # default 18,
         # which wind data to use; use "default" for default behaviour,
         # use "ERA5" for realistic wind data.
         "wind": wind_data,
         # Set altitude at which the parachute should open
-        "parachute_opening_altitude": 150,
+        "parachute_opening_altitude": 10000,
         # maximum simulation time in seconds
         "tmax": 3000,
         # maximum stepsize
@@ -183,8 +183,11 @@ if __name__ == "__main__":
     # cartesian degrees, meaning 0 degrees is eastward, 90 degrees is
     # northward, 180 degrees is westward and 270 degrees is southward,
     # matching the coordinate system of the simulation.
-    n_steps = 10000
-    wind_field_conditions = [90.0, 30.0]  # [270.0, 15.0]
+    n_steps = params["tmax"]
+    wind_field_conditions = [
+        270.0,
+        15.0,
+    ]  # [270.0, 15.0] # make it that it reflects aviation convention.
 
     if params["wind"] == "default" and params["mode"] == "simplified":
         # This for now also automatically assumes a flat earth.
@@ -198,14 +201,14 @@ if __name__ == "__main__":
     if params["mode"] == "realistic" or params["wind"] == "ERA5":
         # Initial coordinates: dummy values for a mid-latitude coastal
         # launch site where the wind data is already available.
-        # lon = 360 - 75
+        # lon = 360 - 75.0
         # lat = 38.5
         # alt = 60000
 
         # Dübendorf airfield (LSMD), Switzerland — aerodrome reference point.
         lat = 47.3986  # in deg, positive north, negative south
         lon = 8.6486  # in deg, positive east, negative west
-        alt = 200000  # entry/drop altitude in m (airfield elevation is ~440 m)
+        alt = 60000  # entry/drop altitude in m (airfield elevation is ~440 m)
 
         # Any airfield (LSMD), Switzerland — aerodrome reference point.
         # lat = -17.3986  # in deg, positive north, negative south
@@ -218,7 +221,7 @@ if __name__ == "__main__":
         # horizontal in x and y and -280 m/s vertical velocity.
         position_init = np.array([lat, lon, alt], dtype=np.float64)
         velocity_init = np.array(
-            [-100.0, 0.0, 0.0], dtype=np.float64
+            [100.0, 0.0, 0.0], dtype=np.float64
         )  # vE, vN, vU in m/s
 
         velocity_vec = RealState.convert_velocity_geodetic_to_cartesian(
@@ -249,7 +252,9 @@ if __name__ == "__main__":
         velocity_vec,
     )
 
-    logger = Logging(n_steps, initial_conditions=initial_conditions)
+    logger = Logging(
+        n_steps, initial_conditions_geodetic=[position_init, velocity_init]
+    )
     # Initialize the rocket simulation with the given parameters and initial conditions
     rocket_simulation = Rocket(
         initial_conditions=initial_conditions,

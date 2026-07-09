@@ -17,6 +17,16 @@ any claim, damages or other liability arising from the use of the software.
 > but the model has not been formally validated against reference
 > trajectories.
 
+## Example output
+
+![Example reentry trajectory](docs/example_reentry.png)
+
+A realistic-mode reentry from 60 km over Dübendorf airfield (LSMD),
+Switzerland, `mass = 700 kg`, entry velocity 100 m/s east, parachute at
+10 km. Left: altitude and vertical velocity over time (the kink near 10 km
+is parachute deployment). Middle: ground track over the ICAO aeronautical
+chart (openAIP airspaces, D°M′ graticule). Right: horizontal true airspeed.
+
 ---
 
 ## Installation

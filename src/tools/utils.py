@@ -216,6 +216,13 @@ def plot_results(
         # actual plotting
         ax1.plot(t, altitude, label="Altitude (m)", color="b", lw=lw)
         ax11.plot(t, velocity[:, 2], label="Vertical Velocity (m/s)", color="r", lw=lw)
+        # ax11.plot( # for debugging
+        #     t,
+        #     np.linalg.norm(velocity[:, :2], axis=1),
+        #     label="Total Horizontal Velocity (m/s)",
+        #     color="darkorange",
+        #     lw=lw,
+        # )
 
         ax2.plot(
             positions[:, 0] / scale_fac,
@@ -289,6 +296,13 @@ def plot_results(
             ax11.plot(
                 t, velocity[:, 2], label="Vertical Velocity (m/s)", color="r", lw=lw
             )
+            # ax11.plot( for debugging
+            #     t,
+            #     np.linalg.norm(velocity[:, :2], axis=1),
+            #     label="Total Horizontal Velocity (m/s)",
+            #     color="darkorange",
+            #     lw=lw,
+            # )
 
             ax2.plot(
                 positions[:, 0] / scale_fac,
@@ -431,10 +445,22 @@ def _deg_decimals(span_deg: float) -> int:
 
 # Standard aeronautical graticule steps, in degrees, descending: 1°, 30', 20',
 # 10', 5', 2', 1', 30", 15", 10", 5", 1".
-_GRATICULE_STEPS = np.array([
-    1.0, 30 / 60, 20 / 60, 10 / 60, 5 / 60, 2 / 60, 1 / 60,
-    30 / 3600, 15 / 3600, 10 / 3600, 5 / 3600, 1 / 3600,
-])
+_GRATICULE_STEPS = np.array(
+    [
+        1.0,
+        30 / 60,
+        20 / 60,
+        10 / 60,
+        5 / 60,
+        2 / 60,
+        1 / 60,
+        30 / 3600,
+        15 / 3600,
+        10 / 3600,
+        5 / 3600,
+        1 / 3600,
+    ]
+)
 
 
 def _graticule(lo: float, hi: float) -> tuple[np.ndarray, float]:
@@ -619,12 +645,8 @@ def add_icao_basemap(
     lat_minor = np.arange(
         np.ceil(lat_lo / (lat_step / 5)), np.floor(lat_hi / (lat_step / 5)) + 1
     ) * (lat_step / 5)
-    ax.set_xticks(
-        [to_merc.transform(d, 0.0)[0] for d in lon_minor], minor=True
-    )
-    ax.set_yticks(
-        [to_merc.transform(0.0, d)[1] for d in lat_minor], minor=True
-    )
+    ax.set_xticks([to_merc.transform(d, 0.0)[0] for d in lon_minor], minor=True)
+    ax.set_yticks([to_merc.transform(0.0, d)[1] for d in lat_minor], minor=True)
 
     # Draw the grid over the map tiles but under the track (zorder 2-3).
     ax.grid(True, which="major", color="0.25", lw=0.5, alpha=0.7, zorder=1.5)
