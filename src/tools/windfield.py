@@ -171,6 +171,8 @@ class WindField:
                 alt=logger.initial_conditions_geodetic[0][2],
             )
 
+            
+
     def _wind_failure(self, message: str) -> npt.NDArray[np.float64]:
         """Warn, log, and fall back to zero wind. Returns the zero vector so
         callers can `return self._wind_failure(...)` directly."""
