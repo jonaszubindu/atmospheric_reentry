@@ -59,7 +59,9 @@ class PhysicsFunctions(RealState):
     def _gravitational_acceleration_ecef(
         self, state: npt.NDArray[np.float64]
     ) -> npt.NDArray[np.float64]:
-        """Compute the forces arising due to Earth's rotation. Should only be used in ECEF
+        """Compute the acceleration in the rotating ECEF frame: central
+        gravity with the J2 term, plus the Coriolis and centrifugal
+        accelerations due to Earth's rotation. Should only be used in ECEF
         coordinates."""
         position = state[:3]
         velocity = state[3:]

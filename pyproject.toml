@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,6 +7,8 @@ name = "atmospheric-reentry"
 version = "0.1.0"
 description = "Rocket reentry simulation toolkit"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [
   { name="jonaszubindu", email="64218380+jonaszubindu@users.noreply.github.com" }
@@ -32,6 +34,16 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff.lint]
+# Pinned explicitly so that a change of ruff's default rule set does not
+# break CI. Add rule families here when you want stricter linting.
+select = ["E4", "E7", "E9", "F"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# main.py and monte_carlo_run.py are scripts in src/, not part of the package.
+pythonpath = ["src", "tests"]
 
 [tool.mypy]
 # Check against the project's minimum Python so PEP 604 unions (X | None)

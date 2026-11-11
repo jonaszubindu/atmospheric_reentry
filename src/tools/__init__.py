@@ -13,6 +13,14 @@ from . import simulate_rocket
 from . import utils
 from . import windfield
 from . import logging
+from . import modes
 from . import state_estimation
 
-__all__ = ["simulate_rocket", "utils", "windfield", "logging", "state_estimation"]
+__all__ = [
+    "simulate_rocket",
+    "utils",
+    "windfield",
+    "logging",
+    "modes",
+    "state_estimation",
+]

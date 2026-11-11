@@ -1,3 +1,5 @@
+import warnings
+
 import numpy as np
 import pandas
 
@@ -13,10 +15,7 @@ from tools.windfield import WindField
 def verbose_message(
     rocket_simulation: Rocket, wind_field: WindField, time0: float
 ) -> None:
-    if (
-        rocket_simulation.params.get("mode") == "realistic"
-        or rocket_simulation.params.get("wind") == "ERA5"
-    ):
+    if rocket_simulation.params["mode"] == "realistic":
         lat, lon, alt = rocket_simulation.get_position_geodetic()
         v_east, v_north, v_up = rocket_simulation.get_velocity_geodetic()
         state_derivative = rocket_simulation.equations_of_motion(
@@ -77,6 +76,17 @@ def main(
             # The rocket has hit the ground, stop the simulation
             break
 
+        if rocket_simulation.solver.status != "running":
+            # The solver has reached tmax, stop the simulation
+            break
+    else:
+        warnings.warn(
+            f"Simulation stopped after {n_steps} steps at t = "
+            f"{rocket_simulation.solver.t:.1f} s, before reaching the ground "
+            "or tmax. Increase n_steps to continue.",
+            UserWarning,
+        )
+
     # Adjust time array to match the length of the state array
     if verbose:
         for warning_ in rocket_simulation.logger.warnings:
@@ -103,28 +113,33 @@ def menu() -> tuple[str, str, bool, bool]:
         print("Invalid choice. Defaulting to 'realistic' mode.")
         mode = "realistic"
 
-    print("\nPlease select the wind data source:")
-    print("1. ERA5 (Realistic Wind Data)")
-    print("2. Default (No Wind Data)")
-    wind_choice = input("Enter your choice (1 or 2): ")
+    if mode == "realistic":
+        print("\nPlease select the wind data source:")
+        print("1. ERA5 (Realistic Wind Data)")
+        print("2. Default (No Wind Data)")
+        wind_choice = input("Enter your choice (1 or 2): ")
 
-    if wind_choice == "1":
-        wind_data = "ERA5"
-    elif wind_choice == "2":
-        wind_data = "default"
-    else:
-        print("Invalid choice. Defaulting to 'ERA5' wind data.")
-        wind_data = "ERA5"
+        if wind_choice == "1":
+            wind_data = "ERA5"
+        elif wind_choice == "2":
+            wind_data = "default"
+        else:
+            print("Invalid choice. Defaulting to 'ERA5' wind data.")
+            wind_data = "ERA5"
 
-    if (
-        mode == "realistic" or wind_data == "ERA5"
-    ):  # required for map drawing, must be aware of coordinate systems
+        # required for map drawing, must be aware of coordinate systems
         print("\nPlease select whether to draw a basemap:")
         basemap_choice = input("Enter your choice (y/n): ")
         if basemap_choice.lower() == "y":
             basemap = True
         else:
             basemap = False
+    else:
+        # The simplified mode is a flat-Earth test box: it only has the
+        # constant default wind and no map (see tools/modes.py).
+        print("\nSimplified mode: using the constant default wind, no basemap.")
+        wind_data = "default"
+        basemap = False
 
     print("\nPlease select whether to enable verbose mode:")
     verbose_choice = input("Enter your choice (y/n): ")
@@ -140,7 +155,7 @@ if __name__ == "__main__":
     # Get user input for simulation parameters
     mode, wind_data, basemap, verbose = menu()
 
-    params = {
+    params: dict = {
         # mass of the rocket in kg, assumed to be a pointmass
         "mass": 700,  # default 700,
         # drag coefficient rocket (dimensionless)
@@ -160,13 +175,12 @@ if __name__ == "__main__":
         "tmax": 3000,
         # maximum stepsize
         "max_step": 0.3,
-        # solver method for the ODE integration, choose from
-        # "RK45", "RK23", "DOP853", "Radau", "BDF", "LSODA" default is "RK45".
-        # See scipy.integrate.solve_ivp for more details.
+        # solver method for the ODE integration. Only "RK45" is implemented
+        # so far; any other value raises NotImplementedError.
         "solver_method": "RK45",
-        # use 'realistic' to use all realistic assumptions and
-        # parameters, or use 'simplified' assumptions for testing and
-        # debugging, e.g. no drag, constant gravity, etc.
+        # 'realistic' is the reentry model on a rotating WGS84 Earth,
+        # 'simplified' is a flat-Earth test box for frame-independent
+        # physics. The two modes are described in tools/modes.py.
         "mode": mode,
         # draw an ICAO / aeronautical basemap behind the ground-track panel
         # (realistic mode only). Fetches map tiles over the network; airspaces
@@ -178,27 +192,36 @@ if __name__ == "__main__":
     }
 
     # Initialize parameters and initial conditions.
-    # Default wind conditions: 270 degrees (north to south), 15 m/s wind
-    # speed, not used if using ERA5 wind data. Degrees are given as
-    # cartesian degrees, meaning 0 degrees is eastward, 90 degrees is
-    # northward, 180 degrees is westward and 270 degrees is southward,
-    # matching the coordinate system of the simulation.
-    n_steps = params["tmax"]
+    # Step budget for the run, which is also the size of the log buffers. The
+    # solver never steps further than max_step, so reaching tmax takes at
+    # least tmax / max_step steps; the factor 2 leaves room for the shorter
+    # steps it takes at start-up and around the parachute opening.
+    n_steps = 2 * int(np.ceil(params["tmax"] / params["max_step"]))
+    # Default wind conditions [direction in deg, speed in m/s], not used if
+    # using ERA5 wind data. The direction follows the aviation convention:
+    # the compass direction the wind blows from (0 = from north, 90 = from
+    # east, 180 = from south, 270 = from west). [270, 15] is a 15 m/s wind
+    # from the west, blowing towards the east.
     wind_field_conditions = [
         270.0,
         15.0,
-    ]  # [270.0, 15.0] # make it that it reflects aviation convention.
+    ]
 
-    if params["wind"] == "default" and params["mode"] == "simplified":
-        # This for now also automatically assumes a flat earth.
+    if params["mode"] == "simplified":
+        # Simplified mode: flat Earth, plain Cartesian initial conditions.
         # Initial position (x, y, z) in meters, rocket dropped at 60 km
         # height.
         position_vec = np.array([0, 0, 2000], dtype=np.float64)
         # Initial velocity (vx, vy, vz) in m/s, rocket dropped at 70 m/s
         # horizontal in x and y and -280 m/s vertical velocity.
         velocity_vec = np.array([30.0, 0.0, 0.0], dtype=np.float64)
+        # No geodetic frame on a flat Earth; the logger only reads these in
+        # ERA5 mode.
+        position_init = position_vec
+        velocity_init = velocity_vec
 
-    if params["mode"] == "realistic" or params["wind"] == "ERA5":
+    if params["mode"] == "realistic":
+        # Realistic mode: geodetic initial conditions, converted to ECEF.
         # Initial coordinates: dummy values for a mid-latitude coastal
         # launch site where the wind data is already available.
         # lon = 360 - 75.0
@@ -233,7 +256,7 @@ if __name__ == "__main__":
         # better visualization of the trajectory and velocity.
         scale_fac = 1
         # Default wind conditions: 15 m/s wind speed from 270 degrees
-        # (north to south), not used if using ERA5 wind data.
+        # (west to east), not used if using ERA5 wind data.
         wind_field_conditions = (
             wind_field_conditions
             if params["wind"] == "default"
@@ -269,18 +292,18 @@ if __name__ == "__main__":
     )
 
     # Example usage for default wind parameters - 15 m/s wind speed from
-    # 270 degrees (north to south)
+    # 270 degrees (west to east)
 
     _ = main(
         n_steps,
         rocket_simulation,
-        verbose=params.get("verbose"),
+        verbose=params["verbose"],
     )
 
-    scale_fac = 1 if params["mode"] == "realistic" or params["wind"] == "ERA5" else 1000
+    scale_fac = 1 if params["mode"] == "realistic" else 1000
     # set a limit for the horizontal trajectory plot to investigate
     # initial trajectory.
-    if params["mode"] == "realistic" or params["wind"] == "ERA5":
+    if params["mode"] == "realistic":
         lim = None
     else:
         lim = 20

@@ -1,6 +1,6 @@
 """
 Copyright 2026 Jonas Zbinden
-This software is licensed under the terms of the MIT GNU AGPLv3 License
+This software is licensed under the terms of the MIT License
 which can be obtained at https://opensource.org/licenses/MIT or from the
 LICENSE file in the root directory of this project.
 
@@ -32,36 +32,36 @@ from tools.simulate_rocket import Rocket
 from tools.logging import Logging
 
 nsamples = 200
-# Sample initial wind conditions
+# Sample initial wind conditions: the compass direction the wind blows from
+# and the wind speed.
 wind_dir = np.array([np.random.uniform(0, 360) for i in range(nsamples)])  # deg
 wind_vel = np.array([np.random.uniform(0, 20) for i in range(nsamples)])  # m/s
 
-# These parameters are set to default values in core_functions.py, but
-# can be modified here if needed
-params = {
+# Rocket and simulation parameters, see main.py for a description of each.
+params: dict = {
     "mass": 700,  # mass of the rocket in kg, assumed to be a pointmass
     "drag_coefficient": 1.4,  # drag coefficient rocket (dimensionless)
     "drag_coefficient_parachute": 2.0,  # drag coeff. with parachute
-    "sea_level_air_density": 1.2,  # air density at sea level in kg/m^3
     "cross_sectional_area": 1.14,  # cross-sectional area in m^2
     "cross_sectional_area_parachute": 18,  # parachute area in m^2
+    "parachute_opening_altitude": 10000,  # parachute opening altitude in m
+    "tmax": 3000,  # maximum simulation time in seconds
+    "max_step": 0.3,  # maximum stepsize in seconds
     # Monte Carlo runs this will be overridden.
     "wind": "default",
-    # use 'realistic' to use all realistic assumptions and parameters,
-    # or use simplified assumptions for testing and debugging, e.g. no
-    # drag, constant gravity, etc.
+    # 'realistic' or 'simplified', see tools/modes.py.
     "mode": "realistic",
 }
 
 # Initialize parameters and initial conditions
-# Time array from 0 to 3000 seconds with 10000 time steps
-t = np.linspace(0, 3000, 10000)
+# Step budget per run, which is also the size of the log buffers (see main.py).
+n_steps = 2 * int(np.ceil(params["tmax"] / params["max_step"]))
 
 # Set wind parameter to indicate that we are using Monte Carlo sampled
 # wind conditions
 params["wind"] = "Monte Carlo"
 
-if params["mode"] == "realistic" or params["wind"] == "ERA5":
+if params["mode"] == "realistic":
     lon = 360 - 75
     lat = 38.5
     alt = 60000
@@ -85,6 +85,10 @@ else:
     # Initial velocity (vx, vy, vz) in m/s, rocket dropped at 70 m/s
     # horizontal in x and y and -280 m/s vertical velocity.
     velocity_vec = np.array([70, 70, -280])
+    # No geodetic frame on a flat Earth; the logger only reads these in
+    # ERA5 mode.
+    position_init = position_vec
+    velocity_init = velocity_vec
     # Scale factor for plotting, to convert from meters to kilometers
     # for position
     scale_fac = 1000
@@ -98,18 +102,24 @@ print(
     "Velocity (vx, vy, vz): ",
     velocity_vec,
 )
-# wind_field = WindField(start_time=start_time, params=params, logger=None)
-# Run main with different winds in parallel using joblib.
+# Run main with different winds in parallel using joblib. Each run gets its
+# own logger, wind field and rocket.
 out = Parallel(n_jobs=-1, verbose=10)(
     delayed(main)(
-        t,
+        n_steps,
         rocket_simulation=Rocket(
             initial_conditions=initial_conditions,
             params=params,
-            logger=Logging(n_steps=len(t)),
+            logger=Logging(
+                n_steps, initial_conditions_geodetic=[position_init, velocity_init]
+            ),
+            wind_field=WindField(
+                start_time=start_time,
+                params=params,
+                logger=None,
+                wind_field_conditions=[wind_dir[i], wind_vel[i]],
+            ),
         ),
-        wind_field=WindField(start_time=start_time, params=params, logger=None),
-        wind_field_conditions=[wind_dir[i], wind_vel[i]],
         verbose=False,
     )
     for i in range(nsamples)
