@@ -1,5 +1,6 @@
 import warnings
 from typing import Callable
+from .modes import validate_mode
 from .utils import PhysicsFunctions
 from .windfield import WindField
 from .logging import Logging
@@ -10,13 +11,17 @@ from scipy.integrate import RK45
 
 
 class Rocket(PhysicsFunctions):
-    # These three are bound to concrete implementations in __init__ based on
-    # the simulation mode (strategy dispatch). Declared here as instance
+    # These four are bound to concrete implementations in __init__ based on
+    # the simulation mode (strategy dispatch, see _setup_simplified_mode and
+    # _setup_realistic_mode). Declared here as instance
     # attributes so type checkers see them without the "cannot assign to a
     # method" error a placeholder method definition would trigger.
     calc_altitude_abv_sea_level: Callable[[npt.NDArray[np.float64]], np.float64]
     grav_acc: Callable[[npt.NDArray[np.float64]], npt.NDArray[np.float64]]
     get_air_density: Callable[[npt.NDArray[np.float64]], np.float64]
+    _update_environment: Callable[
+        [float, npt.NDArray[np.float64]], npt.NDArray[np.float64]
+    ]
 
     """
     Simulate the rocket's flight using the equations of motion.
@@ -66,50 +71,18 @@ class Rocket(PhysicsFunctions):
         if self.params["mass"] <= 0:
             raise ValueError("Rocket mass must be positive. Check your parameters.")
 
-        # Set the appropriate methods for altitude, gravity, and air
-        # density calculations based on the simulation mode and wind data.
+        if self.params.get("solver_method", "RK45") != "RK45":
+            raise NotImplementedError(
+                "Only the RK45 solver is implemented. Set solver_method to 'RK45'."
+            )
 
-        if (
-            self.params.get("mode") == "simplified"
-            and self.params.get("wind") != "ERA5"
-        ):
-            # Use simplified models for altitude, gravity, and air density
-            self.calc_altitude_abv_sea_level = self._calc_alt_simpl
-            self.grav_acc = self._simple_gravity
-            self.get_air_density = self._simple_airdensity
-            warnings.warn(
-                "Mode: simplified. No wind data or pseudo forces will be "
-                "used. Gravity and air density are simplified.",
-                UserWarning,
-            )
-        elif (
-            self.params.get("mode") == "realistic" and self.params.get("wind") != "ERA5"
-        ):
-            # Use realistic models for altitude, gravity, and air density
-            self.calc_altitude_abv_sea_level = self._calc_alt_geodetic
-            self.get_air_density = self._realistic_airdensity
-            self.grav_acc = self._gravitational_acceleration_ecef
-        elif self.params.get("wind") == "ERA5":
-            # Use realistic models for altitude, gravity, and air density
-            # plus ERA5 wind data
-            warnings.warn(
-                "Using ERA5 wind data automatically sets mode to realistic.",
-                UserWarning,
-            )
-            self.calc_altitude_abv_sea_level = self._calc_alt_geodetic
-            self.get_air_density = self._realistic_airdensity
-            self.grav_acc = self._gravitational_acceleration_ecef
+        # Bind the frame and environment models of the simulation mode. This
+        # is the only place where the two modes differ in the dynamics, see
+        # modes.py.
+        if validate_mode(self.params) == "simplified":
+            self._setup_simplified_mode()
         else:
-            # If no valid mode is specified, default to simplified models
-            # and issue a warning
-            warnings.warn(
-                "No valid mode specified. Defaulting to simplified mode "
-                "with no wind data or pseudo forces.",
-                UserWarning,
-            )
-            self.calc_altitude_abv_sea_level = self._calc_alt_simpl
-            self.grav_acc = self._simple_gravity
-            self.get_air_density = self._simple_airdensity
+            self._setup_realistic_mode()
 
         # Wind is held constant across the RK stages of a single step
         # (refreshed once per committed step in update_state). Seed it here so
@@ -147,23 +120,45 @@ class Rocket(PhysicsFunctions):
             state, wind_velv, air_density, drag_coeff, cross_sectional_area
         )
 
-    def _update_environment(
+    def _setup_simplified_mode(self) -> None:
+        """Bind the models of the simplified mode: a flat, non-rotating Earth
+        with constant gravity, constant air density and a constant wind."""
+        self.calc_altitude_abv_sea_level = self._calc_alt_simpl
+        self.grav_acc = self._simple_gravity
+        self.get_air_density = self._simple_airdensity
+        self._update_environment = self._wind_simplified
+        warnings.warn(
+            "Mode: simplified. Flat, non-rotating Earth with constant gravity "
+            "and air density, meant as a test box (see tools/modes.py).",
+            UserWarning,
+        )
+
+    def _setup_realistic_mode(self) -> None:
+        """Bind the models of the realistic mode: a rotating WGS84 Earth in
+        ECEF coordinates with J2 gravity, pseudo forces, exponential air
+        density and a wind given in local east/north/up."""
+        self.calc_altitude_abv_sea_level = self._calc_alt_geodetic
+        self.grav_acc = self._gravitational_acceleration_ecef
+        self.get_air_density = self._realistic_airdensity
+        self._update_environment = self._wind_realistic
+
+    def _wind_simplified(
         self, t: float, state: npt.NDArray[np.float64]
     ) -> npt.NDArray[np.float64]:
-        """Update the wind field based on the current position of the rocket
-        and the specified wind field conditions. No need to pass the state, since the state
-        is already internally updated."""
-        if self.params.get("wind") == "ERA5" or self.params.get("mode") == "realistic":
-            position_geodetic = self.convert_cartesian_to_geodetic(state[:3])
-            # Get current wind for present position
-            wind_vel_geodetic = self.wind_field.get_wind(t, position_geodetic)
-            wind_velv = self.convert_velocity_geodetic_to_cartesian(
-                wind_vel_geodetic, position_geodetic[0], position_geodetic[1]
-            )
-        else:  # simplified mode, or default wind.
-            position = state[:3]
-            wind_velv = self.wind_field.get_wind(t, position)
-        return wind_velv
+        """Wind at the current position in simplified mode. The wind field
+        already returns it in the Cartesian x, y, z of the flat Earth."""
+        return self.wind_field.get_wind(t, state[:3])
+
+    def _wind_realistic(
+        self, t: float, state: npt.NDArray[np.float64]
+    ) -> npt.NDArray[np.float64]:
+        """Wind at the current position in realistic mode. The wind field
+        returns it in local east/north/up, which is rotated into ECEF."""
+        position_geodetic = self.convert_cartesian_to_geodetic(state[:3])
+        wind_vel_geodetic = self.wind_field.get_wind(t, position_geodetic)
+        return self.convert_velocity_geodetic_to_cartesian(
+            wind_vel_geodetic, position_geodetic[0], position_geodetic[1]
+        )
 
     def equations_of_motion(
         self, t: float, state: npt.NDArray[np.float64]

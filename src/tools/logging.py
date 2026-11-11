@@ -47,16 +47,15 @@ class Logging:
 
         self.position[i] = rocket.get_position_cartesian()
         self.velocity[i] = rocket.get_velocity_cartesian()
-        altitude = rocket.get_position_geodetic()[2]
+        # Altitude from the model of the active mode (flat or geodetic Earth).
+        altitude = rocket.calc_altitude_abv_sea_level(rocket.state_cartesian)
         self.altitude[i] = altitude
 
-        if (
-            rocket.params.get("mode") == "realistic"
-            or rocket.params.get("wind") == "ERA5"
-        ):
+        # Geodetic quantities only exist in realistic mode.
+        if rocket.params["mode"] == "realistic":
             self.position_geodetic[i] = rocket.get_position_geodetic()
             self.velocity_geodetic[i] = rocket.get_velocity_geodetic()
-            self.geopotential[i] = altitude_to_geopotential(altitude)
+            self.geopotential[i] = altitude_to_geopotential(float(altitude))
 
         self.drag_force[i] = np.linalg.norm(
             rocket.get_drag_force(rocket.state_cartesian, rocket.wind_field.wind_velv)

@@ -3,6 +3,7 @@ from typing import Callable, Optional
 
 import numpy as np
 from .logging import Logging
+from .modes import validate_mode
 import xarray as xr
 import pandas as pd
 import cfgrib
@@ -38,6 +39,8 @@ class WindField:
     # None in ERA5 mode (wind comes from the model), a [dir, speed] pair for
     # the analytic default wind.
     wind_field_conditions: Optional[list[float]]
+    # Most recently computed wind velocity vector.
+    wind_velv: npt.NDArray[np.float64]
 
     def _verify_position_within_bounds(
         self, lat: float, lon: float, alt: float
@@ -88,6 +91,8 @@ class WindField:
         """
         self.logger = logger
         self.params = params
+        # ERA5 wind is only available in realistic mode.
+        validate_mode(self.params)
         # Mutable defaults are shared across calls, so default to None and
         # substitute a fresh list here.
         self.wind_field_conditions = (
@@ -170,8 +175,6 @@ class WindField:
                 lon=logger.initial_conditions_geodetic[0][1],
                 alt=logger.initial_conditions_geodetic[0][2],
             )
-
-            
 
     def _wind_failure(self, message: str) -> npt.NDArray[np.float64]:
         """Warn, log, and fall back to zero wind. Returns the zero vector so
