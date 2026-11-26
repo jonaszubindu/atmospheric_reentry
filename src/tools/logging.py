@@ -40,27 +40,70 @@ class Logging:
         # Variable-length information
         self.warnings: list[list[str]] = [[] for _ in range(n_steps)]
 
+    def _ensure_capacity(self) -> None:
+        """Grow the buffers when full. With interpolated output (see
+        Rocket.update_state) the number of logged rows no longer equals the
+        number of solver steps, so the initial size is only a first guess."""
+        n = len(self.time)
+        if self.i < n:
+            return
+        extra = max(n, 64)
+        for name in (
+            "time",
+            "altitude",
+            "drag_force",
+            "air_density",
+            "grav_acc_norm",
+            "geopotential",
+        ):
+            setattr(self, name, np.concatenate([getattr(self, name), np.full(extra, np.nan)]))
+        for name in (
+            "position",
+            "velocity",
+            "position_geodetic",
+            "velocity_geodetic",
+            "wind_velocity",
+        ):
+            setattr(
+                self,
+                name,
+                np.concatenate([getattr(self, name), np.full((extra, 3), np.nan)]),
+            )
+        self.warnings.extend([] for _ in range(extra))
+
     def log_state(self, rocket: "Rocket", t: float) -> None:
+        self._ensure_capacity()
         i = self.i
 
         self.time[i] = t
 
+        state = rocket.state_cartesian
+        velocity = rocket.get_velocity_cartesian()
         self.position[i] = rocket.get_position_cartesian()
-        self.velocity[i] = rocket.get_velocity_cartesian()
-        # Altitude from the model of the active mode (flat or geodetic Earth).
-        altitude = rocket.calc_altitude_abv_sea_level(rocket.state_cartesian)
+        self.velocity[i] = velocity
+
+        if rocket.params["mode"] == "realistic":
+            # One Cartesian -> geodetic conversion per row: its latitude and
+            # longitude also rotate the velocity into east/north/up, and its
+            # height is the altitude used for drag and density below.
+            position_geodetic = rocket.get_position_geodetic()
+            lat, lon, altitude = position_geodetic
+            self.position_geodetic[i] = position_geodetic
+            self.velocity_geodetic[i] = rocket.convert_velocity_cartesian_to_geodetic(
+                velocity, lat, lon
+            )
+            self.geopotential[i] = altitude_to_geopotential(float(altitude))
+        else:
+            # Flat Earth: the altitude is the z coordinate, no conversion.
+            altitude = rocket.calc_altitude_abv_sea_level(state)
         self.altitude[i] = altitude
 
-        # Geodetic quantities only exist in realistic mode.
-        if rocket.params["mode"] == "realistic":
-            self.position_geodetic[i] = rocket.get_position_geodetic()
-            self.velocity_geodetic[i] = rocket.get_velocity_geodetic()
-            self.geopotential[i] = altitude_to_geopotential(float(altitude))
-
+        # Drag with the wind in the simulation frame (ECEF in realistic mode),
+        # exactly as used by the equations of motion.
         self.drag_force[i] = np.linalg.norm(
-            rocket.get_drag_force(rocket.state_cartesian, rocket.wind_field.wind_velv)
+            rocket.get_drag_force(state, rocket._wind_cartesian, altitude)
         )
-        self.air_density[i] = rocket.get_air_density(rocket.state_cartesian)
+        self.air_density[i] = rocket.get_air_density(state, altitude)
         self.grav_acc_norm[i] = np.linalg.norm(rocket.grav_acc(rocket.state_cartesian))
 
         self.i += 1

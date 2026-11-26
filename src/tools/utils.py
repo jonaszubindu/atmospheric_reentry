@@ -25,14 +25,20 @@ class PhysicsFunctions(RealState):
         """Initialize the PhysicsFunctions class."""
         super().__init__()  # Initialize the RealState class
 
-    def _simple_airdensity(self, state: npt.NDArray[np.float64]) -> np.float64:
+    def _simple_airdensity(
+        self, state: npt.NDArray[np.float64], altitude: Optional[float] = None
+    ) -> np.float64:
         """Return a constant air density for the simplified model."""
         # Air density at sea level in kg/m^3
         return np.float64(const.SEA_LEVEL_AIR_DENSITY)
 
-    def _realistic_airdensity(self, state: npt.NDArray[np.float64]) -> np.float64:
-        """Compute air density based on altitude using an exponential model."""
-        altitude = self._calc_alt_geodetic(state)
+    def _realistic_airdensity(
+        self, state: npt.NDArray[np.float64], altitude: Optional[float] = None
+    ) -> np.float64:
+        """Compute air density based on altitude using an exponential model.
+        Pass the altitude if it is already known, to skip the conversion."""
+        if altitude is None:
+            altitude = self._calc_alt_geodetic(state)
         return np.float64(
             const.SEA_LEVEL_AIR_DENSITY * np.exp(-altitude / const.scale_height)
         )
@@ -79,11 +85,14 @@ class PhysicsFunctions(RealState):
         az = -const.GM * z / r**3 * (1.0 - k * (z2r2 - 3.0))
         acc = np.array([ax, ay, az], dtype=np.float64)
 
-        coriolis_acc = -2 * np.cross(const.EARTH_ROTATION, velocity)
-        centrifugal_acc = -np.cross(
-            const.EARTH_ROTATION, np.cross(const.EARTH_ROTATION, position)
-        )
-        acc += coriolis_acc + centrifugal_acc
+        # Earth rotates about the ECEF z-axis, Omega = (0, 0, w), so the
+        # pseudo forces have closed forms (np.cross on 3-vectors was ~20% of
+        # the runtime):
+        #   Coriolis    -2 Omega x v          = 2w (v_y, -v_x, 0)
+        #   centrifugal -Omega x (Omega x r)  = w^2 (x, y, 0)
+        w = const.OMEGA_E
+        acc[0] += 2.0 * w * velocity[1] + w * w * x
+        acc[1] += -2.0 * w * velocity[0] + w * w * y
 
         return acc
 
