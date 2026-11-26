@@ -283,6 +283,13 @@ The horizontal area and date are fixed by the download request in
 `get_winddata.py`; a trajectory that leaves the downloaded area or altitude
 range gets zero wind (with a logged warning) rather than an error.
 
+**Data attribution.** The sample files in `src/tools/windmodel_data/` were
+generated using Copernicus Climate Change Service information [2026];
+`z_out.grib` contains modified Copernicus Climate Change Service information
+[2026] (geopotential derived with `compute_geopotential_on_ml.py`). Neither
+the European Commission nor ECMWF is responsible for any use that may be made
+of the Copernicus information or data it contains.
+
 ---
 
 ## Ground-track basemap (ICAO / aeronautical map)
@@ -321,7 +328,14 @@ that airspaces are not drawn. Tiles are fetched over the network at plot
 time, so this needs internet access.
 
 > **Security:** `.env` is listed in `.gitignore` — keep your key out of
-> version control. Never commit it.
+> version control. Never commit it. The tile cache in
+> `~/.cache/atmospheric_reentry/tiles` stores the tile URLs including your
+> key, so don't share that folder either; error messages redact the key.
+
+Plots carry the attribution the tile licences require ("© OpenStreetMap
+contributors", plus openAIP when the overlay is drawn). Note that openAIP
+data is licensed CC BY-NC 4.0 (non-commercial), and OpenStreetMap's own tile
+servers are for light use only.
 
 ---
 

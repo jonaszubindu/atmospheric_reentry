@@ -600,8 +600,13 @@ def add_icao_basemap(
                 source=_ICAO_OVERLAY_URL.replace("OPENAIP_KEY", api_key),
             )
     except Exception as exc:  # offline + uncached, or tile server error
+        # The openAIP tile URL carries the API key as a query parameter and
+        # HTTP errors usually quote the full URL: never print the key.
+        message = str(exc)
+        if api_key:
+            message = message.replace(api_key, "***")
         warnings.warn(
-            f"Basemap tiles unavailable ({exc}); keeping the plain lon/lat "
+            f"Basemap tiles unavailable ({message}); keeping the plain lon/lat "
             "ground-track plot."
         )
         return
@@ -615,6 +620,13 @@ def add_icao_basemap(
         ax.imshow(ov_img, extent=ov_ext, interpolation="bilinear", zorder=1)
     ax.plot(xm, ym, color="b", lw=max(lw, 1.0), label="Ground track", zorder=2)
     ax.scatter(xm[-1], ym[-1], color="b", s=12, label="Impact", zorder=3)
+
+    # The tile licences require visible credit: OpenStreetMap (ODbL and tile
+    # usage policy) and openAIP (CC BY-NC 4.0).
+    credit = "© OpenStreetMap contributors"
+    if overlay is not None:
+        credit += " · airspace © openAIP (CC BY-NC 4.0)"
+    cx.add_attribution(ax, credit)
 
     ax.set_xlim(xmin, xmax)
     ax.set_ylim(ymin, ymax)
