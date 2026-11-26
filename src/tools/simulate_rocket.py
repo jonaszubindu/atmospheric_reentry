@@ -24,7 +24,9 @@ class Rocket(PhysicsFunctions):
     # method" error a placeholder method definition would trigger.
     calc_altitude_abv_sea_level: Callable[[npt.NDArray[np.float64]], np.float64]
     grav_acc: Callable[[npt.NDArray[np.float64]], npt.NDArray[np.float64]]
-    get_air_density: Callable[[npt.NDArray[np.float64]], np.float64]
+    # (state, altitude) -> density; pass the altitude when already known,
+    # or None to compute it from the state.
+    get_air_density: Callable[[npt.NDArray[np.float64], Optional[float]], np.float64]
     _update_environment: Callable[
         [float, npt.NDArray[np.float64]], npt.NDArray[np.float64]
     ]
@@ -259,9 +261,10 @@ class Rocket(PhysicsFunctions):
                 self._log_at(self._next_output_t, dense(self._next_output_t))
                 self._next_output_t += self.output_interval
             # Always log the final state (ground crossing or tmax) as well.
-            if self.solver.status != "running" and self.logger.time[
-                self.logger.i - 1
-            ] != t_end:
+            if (
+                self.solver.status != "running"
+                and self.logger.time[self.logger.i - 1] != t_end
+            ):
                 self._log_at(t_end, y_end)
         else:
             # Log every solver step (the crossing state on the last one).

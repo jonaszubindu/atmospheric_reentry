@@ -51,7 +51,9 @@ def test_large_steps_match_small_steps(params, make_rocket):
     lat_l, lon_l, t_l = impact(
         run_simulation(make_rocket(large, POS, VEL, [270.0, 10.0]), 100_000)
     )
-    metres = 111_320 * np.hypot(lat_l - lat_s, (lon_l - lon_s) * np.cos(np.radians(lat_s)))
+    metres = 111_320 * np.hypot(
+        lat_l - lat_s, (lon_l - lon_s) * np.cos(np.radians(lat_s))
+    )
     assert metres < 1.0
     assert t_l == pytest.approx(t_s, abs=0.05)
 
@@ -73,7 +75,9 @@ def test_pseudo_forces_match_cross_products(physics):
         total = physics._gravitational_acceleration_ecef(state)
 
         omega = const.EARTH_ROTATION
-        pseudo = -2 * np.cross(omega, velocity) - np.cross(omega, np.cross(omega, position))
+        pseudo = -2 * np.cross(omega, velocity) - np.cross(
+            omega, np.cross(omega, position)
+        )
         no_rotation = total - pseudo  # remaining part must be pure gravity
         r = np.linalg.norm(position)
         # gravity points (nearly) to the centre: J2 tilts it by < 1e-3 rad
