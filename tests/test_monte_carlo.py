@@ -15,9 +15,7 @@ def ground_offset_km(df):
     """East and north offset of the impact point from the drop point (km)."""
     last = df.iloc[-1]
     east = (
-        (last["position geodetic lon"] - LON)
-        * KM_PER_DEG_LAT
-        * np.cos(np.radians(LAT))
+        (last["position geodetic lon"] - LON) * KM_PER_DEG_LAT * np.cos(np.radians(LAT))
     )
     north = (last["position geodetic lat"] - LAT) * KM_PER_DEG_LAT
     return east, north

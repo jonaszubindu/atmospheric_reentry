@@ -262,12 +262,12 @@ without the script:
 from tools.monte_carlo import run_monte_carlo
 
 trajectories, winds = run_monte_carlo(
-    params,                              # as in main.py
+    params,  # as in main.py
     position_init=[38.5, 285.0, 60000],  # lat, lon, alt (realistic mode)
-    velocity_init=[70, 70, -280],        # east, north, up in m/s
+    velocity_init=[70, 70, -280],  # east, north, up in m/s
     n_samples=200,
-    seed=1,                              # reproducible ensemble
-    n_jobs=-1,                           # all cores; 1 = sequential
+    seed=1,  # reproducible ensemble
+    n_jobs=-1,  # all cores; 1 = sequential
 )
 ```
 

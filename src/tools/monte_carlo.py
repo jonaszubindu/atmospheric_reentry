@@ -133,8 +133,8 @@ def _run_sample(
 
 def run_monte_carlo(
     params: dict,
-    position_init: Sequence[float],
-    velocity_init: Sequence[float],
+    position_init: npt.ArrayLike,
+    velocity_init: npt.ArrayLike,
     n_samples: Optional[int] = None,
     *,
     wind_samples: Optional[npt.ArrayLike] = None,
@@ -186,13 +186,11 @@ def run_monte_carlo(
 
     if n_steps is None:
         n_steps = default_n_steps(run_params)
-    position_init = np.asarray(position_init, dtype=np.float64)
-    velocity_init = np.asarray(velocity_init, dtype=np.float64)
+    position = np.asarray(position_init, dtype=np.float64)
+    velocity = np.asarray(velocity_init, dtype=np.float64)
 
     trajectories = Parallel(n_jobs=n_jobs, verbose=verbose)(
-        delayed(_run_sample)(
-            run_params, position_init, velocity_init, wind, n_steps, start_time
-        )
+        delayed(_run_sample)(run_params, position, velocity, wind, n_steps, start_time)
         for wind in wind_samples
     )
     return list(trajectories), wind_samples

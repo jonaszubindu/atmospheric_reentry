@@ -56,7 +56,11 @@ class Logging:
             "grav_acc_norm",
             "geopotential",
         ):
-            setattr(self, name, np.concatenate([getattr(self, name), np.full(extra, np.nan)]))
+            setattr(
+                self,
+                name,
+                np.concatenate([getattr(self, name), np.full(extra, np.nan)]),
+            )
         for name in (
             "position",
             "velocity",
