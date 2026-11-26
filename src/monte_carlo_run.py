@@ -19,23 +19,22 @@ directions from a uniform distribution between 0 and 360 degrees, and
 wind speeds from a uniform distribution between 0 and 20 m/s. The
 results are plotted in a single figure to visualize the impact of
 different wind conditions on the rocket's trajectory.
+
+The ensemble itself is run by tools.monte_carlo.run_monte_carlo, which other
+programs can import directly; this script only sets the scenario and plots.
 """
 
 import numpy as np
-from joblib import Parallel, delayed
 
-from main import main
+from tools.monte_carlo import default_n_steps, run_monte_carlo
 from tools.utils import plot_results
-from tools.windfield import WindField
-from tools.state_estimation import RealState
-from tools.simulate_rocket import Rocket
-from tools.logging import Logging
 
 nsamples = 200
-# Sample initial wind conditions: the compass direction the wind blows from
-# and the wind speed.
-wind_dir = np.array([np.random.uniform(0, 360) for i in range(nsamples)])  # deg
-wind_vel = np.array([np.random.uniform(0, 20) for i in range(nsamples)])  # m/s
+# Uniform sampling ranges: the compass direction the wind blows from (deg)
+# and the wind speed (m/s).
+wind_dir_range = (0.0, 360.0)
+wind_speed_range = (0.0, 20.0)
+seed = None  # set an int for a reproducible ensemble
 
 # Rocket and simulation parameters, see main.py for a description of each.
 params: dict = {
@@ -46,85 +45,57 @@ params: dict = {
     "cross_sectional_area_parachute": 18,  # parachute area in m^2
     "parachute_opening_altitude": 10000,  # parachute opening altitude in m
     "tmax": 3000,  # maximum simulation time in seconds
-    "max_step": 0.3,  # maximum stepsize in seconds
-    # Monte Carlo runs this will be overridden.
-    "wind": "default",
+    # Maximum solver step in seconds. Accuracy is set by the error
+    # tolerances (rtol, atol_position, atol_velocity; engine defaults), so
+    # the step can be large where the flight is smooth.
+    "max_step": 5.0,
+    "output_interval": 0.5,  # log a state every 0.5 s (interpolated)
+    # Monte Carlo sampled analytic wind (set by run_monte_carlo).
+    "wind": "Monte Carlo",
     # 'realistic' or 'simplified', see tools/modes.py.
     "mode": "realistic",
 }
 
-# Initialize parameters and initial conditions
-# Step budget per run, which is also the size of the log buffers (see main.py).
-n_steps = 2 * int(np.ceil(params["tmax"] / params["max_step"]))
-
-# Set wind parameter to indicate that we are using Monte Carlo sampled
-# wind conditions
-params["wind"] = "Monte Carlo"
-
 if params["mode"] == "realistic":
-    lon = 360 - 75
-    lat = 38.5
-    alt = 60000
-    # Initial position (x, y, z) in meters, rocket dropped at 60 km
-    # height.
-    position_init = np.array([lat, lon, alt])
+    # Initial position (lat, lon, alt): rocket dropped at 60 km height.
+    position_init = np.array([38.5, 360 - 75, 60000])
+    # Initial velocity (east, north, up) in m/s.
     velocity_init = np.array([70, 70, -280])
-
-    velocity_vec = RealState.convert_velocity_geodetic_to_cartesian(
-        velocity_init, lat, lon
-    )
-    position_vec = RealState.convert_geodetic_to_cartesian(position_init)
-    # Scale factor for plotting, to convert from meters to kilometers
-    # for position and from m/s to km/s for velocity, for better
-    # visualization of the trajectory and velocity.
+    # Scale factor for plotting (positions already in metres on the globe).
     scale_fac = 1
 else:
-    # Initial position (x, y, z) in meters, rocket dropped at 60 km
-    # height.
-    position_vec = np.array([0, 0, 60000])
-    # Initial velocity (vx, vy, vz) in m/s, rocket dropped at 70 m/s
-    # horizontal in x and y and -280 m/s vertical velocity.
-    velocity_vec = np.array([70, 70, -280])
-    # No geodetic frame on a flat Earth; the logger only reads these in
-    # ERA5 mode.
-    position_init = position_vec
-    velocity_init = velocity_vec
-    # Scale factor for plotting, to convert from meters to kilometers
-    # for position
+    # Initial position (x, y, z) in meters, rocket dropped at 60 km height.
+    position_init = np.array([0, 0, 60000])
+    # Initial velocity (vx, vy, vz) in m/s.
+    velocity_init = np.array([70, 70, -280])
+    # Scale factor for plotting, to convert from meters to kilometers.
     scale_fac = 1000
 
-
-initial_conditions = [position_vec, velocity_vec]
 start_time = "2026-06-10T13:00:00"  # Start time for the simulation
-print(
-    "Initial conditions - Position (x, y, z): ",
-    position_vec,
-    "Velocity (vx, vy, vz): ",
-    velocity_vec,
-)
-# Run main with different winds in parallel using joblib. Each run gets its
-# own logger, wind field and rocket.
-out = Parallel(n_jobs=-1, verbose=10)(
-    delayed(main)(
-        n_steps,
-        rocket_simulation=Rocket(
-            initial_conditions=initial_conditions,
-            params=params,
-            logger=Logging(
-                n_steps, initial_conditions_geodetic=[position_init, velocity_init]
-            ),
-            wind_field=WindField(
-                start_time=start_time,
-                params=params,
-                logger=None,
-                wind_field_conditions=[wind_dir[i], wind_vel[i]],
-            ),
-        ),
-        verbose=False,
+
+
+if __name__ == "__main__":
+    print(
+        "Initial conditions - Position: ",
+        position_init,
+        "Velocity: ",
+        velocity_init,
     )
-    for i in range(nsamples)
-)
+    # Runs in parallel on all cores (n_jobs=-1); each run gets its own
+    # logger, wind field and rocket.
+    out, winds = run_monte_carlo(
+        params,
+        position_init,
+        velocity_init,
+        n_samples=nsamples,
+        wind_dir_range=wind_dir_range,
+        wind_speed_range=wind_speed_range,
+        seed=seed,
+        n_steps=default_n_steps(params),
+        start_time=start_time,
+        n_jobs=-1,
+        verbose=10,
+    )
 
-
-# Plot the trajectories of all runs in the same figure
-plot_results(out, lw=0.1, params=params, lim=None, scale_fac=scale_fac)
+    # Plot the trajectories of all runs in the same figure
+    plot_results(out, lw=0.1, params=params, lim=None, scale_fac=scale_fac)

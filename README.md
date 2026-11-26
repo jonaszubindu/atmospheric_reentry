@@ -102,7 +102,11 @@ Behaviour is driven by a `params` dictionary:
 | `cross_sectional_area_parachute` | float (m²)                          | reference area below it |
 | `parachute_opening_altitude`     | float (m)                           | altitude below which the parachute values apply |
 | `tmax`                           | float (s)                           | maximum simulated time |
-| `max_step`                       | float (s)                           | maximum solver step size |
+| `max_step`                       | float (s)                           | maximum solver step size; accuracy comes from the tolerances below, so a few seconds is fine (keep it smaller with ERA5 wind, which is held constant over a step) |
+| `rtol`                           | float, default `1e-6`               | optional; relative error tolerance of the RK45 step-size control |
+| `atol_position`                  | float (m), default `1.0`            | optional; absolute position tolerance |
+| `atol_velocity`                  | float (m/s), default `0.01`         | optional; absolute velocity tolerance |
+| `output_interval`                | float (s) or `None`                 | optional; log a state every `output_interval` seconds by interpolating within solver steps (dense output). `None` logs every solver step. The last row is always the exact ground crossing (or `tmax`) |
 | `solver_method`                  | `"RK45"`                            | ODE solver; optional, only `"RK45"` is implemented |
 | `basemap`                        | `True` \| `False`                   | draw an ICAO/aeronautical map behind the ground-track panel (realistic mode; see *Ground-track basemap*) |
 | `verbose`                        | `True` \| `False`                   | print state every 100 steps |
@@ -250,6 +254,28 @@ Runs many trajectories in parallel (via `joblib`) with wind direction and
 speed sampled per run, and plots all trajectories together to show the
 spread of impact points. Sample count and parameters are set at the top of
 `monte_carlo_run.py`.
+
+The ensemble itself is an importable function, so other programs can run it
+without the script:
+
+```python
+from tools.monte_carlo import run_monte_carlo
+
+trajectories, winds = run_monte_carlo(
+    params,                              # as in main.py
+    position_init=[38.5, 285.0, 60000],  # lat, lon, alt (realistic mode)
+    velocity_init=[70, 70, -280],        # east, north, up in m/s
+    n_samples=200,
+    seed=1,                              # reproducible ensemble
+    n_jobs=-1,                           # all cores; 1 = sequential
+)
+```
+
+It returns one DataFrame per run (as from `Logging.get_full_state`) and the
+`(n, 2)` array of `[direction the wind blows from, speed]` used. By default
+the wind is drawn uniformly from 0–360° and 0–20 m/s (`wind_dir_range`,
+`wind_speed_range`), or pass explicit `wind_samples`. Only the wind varies
+so far; initial-state and vehicle (mass, drag) dispersions are not sampled.
 
 ---
 
